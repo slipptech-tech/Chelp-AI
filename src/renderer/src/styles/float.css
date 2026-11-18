@@ -660,3 +660,15 @@ body.float-body-root ::-webkit-scrollbar-thumb {
     transform: scale(0.86);
   }
 }
+
+.float-thinking {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.float-thinking .thinking-text {
+  color: var(--text-2);
+}

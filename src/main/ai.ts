@@ -2,6 +2,7 @@ import { BrowserWindow, Notification, nativeImage } from 'electron'
 import { existsSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import type {
+  AgentOffer,
   Attachment,
   ChatError,
   ChatMessage,
@@ -14,6 +15,7 @@ import type {
 } from '@shared/types'
 import { FLOAT_PROMPT, SCREEN_PROMPT, SYSTEM_PROMPT } from '@shared/prompts'
 import { isProviderReady } from '@shared/providers'
+import { detectAgentIntent } from '@shared/agent'
 import { getStore } from './store'
 import { managedOllamaInstalled, startOllama } from './ollama'
 import { GUARD_POLICY, guardRefusal, inspectRequest } from './guard'
@@ -224,7 +226,8 @@ function buildMessages(
   conversation: Conversation,
   provider: Provider,
   mode: ChatMode,
-  surface: 'main' | 'float'
+  surface: 'main' | 'float',
+  offer?: AgentOffer
 ): unknown[] {
   const system =
     surface === 'float'
@@ -234,8 +237,11 @@ function buildMessages(
       : mode === 'screen'
         ? SCREEN_PROMPT
         : SYSTEM_PROMPT
+  const offerNote = offer
+    ? `\n\nAn action card is attached to your reply: Chelp AI can perform the necessary steps on the user's computer right after answering. Never say that you are unable to open apps, launch programs, change settings or act on this PC. Do not give manual instructions as the only option. In 2-4 short sentences name the cause or the exact route, include the command or setting name when it helps, and say that Chelp will handle it via the card below.`
+    : ''
   const messages: unknown[] = [
-    { role: 'system', content: `${system}\n\n${GUARD_POLICY}` }
+    { role: 'system', content: `${system}\n\n${GUARD_POLICY}${offerNote}` }
   ]
   const history = conversation.messages.filter((m) => !m.error || m.content.trim()).slice(-24)
 
@@ -368,7 +374,8 @@ async function run(
     provider: Provider,
     content: string,
     error?: ChatError,
-    fallbackFrom?: string
+    fallbackFrom?: string,
+    offer?: AgentOffer
   ): void => {
     const message: ChatMessage = {
       id: messageId,
@@ -378,7 +385,8 @@ async function run(
       providerLabel: providerLabel(provider),
       fallbackFrom,
       durationMs: Date.now() - started,
-      error
+      error,
+      agentOffer: offer
     }
     store.addMessage(conversationId, message)
     const updated = store.getConversation(conversationId)
@@ -411,6 +419,8 @@ async function run(
       return
     }
 
+    const offer = lastUser ? detectAgentIntent(lastUser.content) ?? undefined : undefined
+
     for (let index = 0; index < providers.length; index += 1) {
       const provider = providers[index]
       let partial = ''
@@ -428,7 +438,7 @@ async function run(
         }
         const conversation = store.getConversation(conversationId)
         if (!conversation) throw errorOf('not_found')
-        const messages = buildMessages(conversation, provider, mode, surface)
+        const messages = buildMessages(conversation, provider, mode, surface, offer)
         const signal = controller.signal
         const text = store.settings.streaming
           ? await streamCompletion({
@@ -444,7 +454,7 @@ async function run(
 
         if (!text.trim()) throw errorOf('empty')
         const fallbackFrom = skippedActive ?? (index > 0 ? providerLabel(providers[0]) : undefined)
-        persist(provider, text.trim(), undefined, fallbackFrom)
+        persist(provider, text.trim(), undefined, fallbackFrom, offer)
         return
       } catch (error) {
         const raw = mapThrown(error)
@@ -460,7 +470,7 @@ async function run(
           if (partial.trim()) {
             const fallbackFrom =
               skippedActive ?? (index > 0 ? providerLabel(providers[0]) : undefined)
-            persist(provider, partial.trim(), undefined, fallbackFrom)
+            persist(provider, partial.trim(), undefined, fallbackFrom, offer)
           } else {
             broadcast('chat:error', { conversationId, messageId, error: mapped })
           }
@@ -469,7 +479,7 @@ async function run(
         if (partial.trim()) {
           const fallbackFrom =
             skippedActive ?? (index > 0 ? providerLabel(providers[0]) : undefined)
-          persist(provider, partial.trim(), mapped, fallbackFrom)
+          persist(provider, partial.trim(), mapped, fallbackFrom, offer)
           return
         }
         if (index < providers.length - 1 && AUTO_SWITCH_CODES.has(mapped.code)) continue

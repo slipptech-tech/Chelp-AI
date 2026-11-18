@@ -28,6 +28,8 @@ export interface WindowBounds {
   height: number
 }
 
+export type AgentPermission = 'ask' | 'always'
+
 export interface Settings {
   language: Lang
   accent: Accent
@@ -43,6 +45,9 @@ export interface Settings {
   enterToSend: boolean
   reduceMotion: boolean
   checkUpdates: boolean
+  photoRetentionDays: number
+  agentPermission: AgentPermission
+  agentAllowedChats: string[]
   hotkeysEnabled: boolean
   hotkeys: Hotkeys
   providers: Provider[]
@@ -93,6 +98,80 @@ export type MessageRole = 'user' | 'assistant'
 
 export type GuardReason = 'injection' | 'harmful'
 
+export type AgentKind = 'fix' | 'browse' | 'settings' | 'code' | 'app' | 'action'
+export type AgentCapability = 'mouse' | 'keyboard' | 'browser' | 'files'
+
+export interface AgentOffer {
+  kind: AgentKind
+  goal: string
+  url?: string
+  capabilities: AgentCapability[]
+}
+
+export type AgentActionKind =
+  | 'move'
+  | 'click'
+  | 'double_click'
+  | 'right_click'
+  | 'type'
+  | 'press'
+  | 'scroll'
+  | 'wait'
+  | 'open_url'
+  | 'open_app'
+  | 'edit_file'
+  | 'finish'
+
+export interface AgentAction {
+  kind: AgentActionKind
+  x?: number
+  y?: number
+  text?: string
+  keys?: string
+  amount?: number
+  url?: string
+  app?: string
+  path?: string
+  find?: string
+  replace?: string
+  note?: string
+}
+
+export type AgentStepStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped'
+
+export interface AgentStep {
+  index: number
+  action: AgentAction
+  status: AgentStepStatus
+  detail?: string
+}
+
+export interface AgentPlan {
+  id: string
+  goal: string
+  kind: AgentKind
+  risk: 'low' | 'medium'
+  steps: AgentStep[]
+  providerLabel: string
+}
+
+export interface AgentPrepared {
+  id: string
+  preview: string | null
+  width: number
+  height: number
+  providerLabel: string
+  needsScreenshot: boolean
+}
+
+export interface AgentRunEvent {
+  id: string
+  status: 'running' | 'done' | 'cancelled' | 'error'
+  step: number
+  total: number
+  message?: string
+}
+
 export interface ChatMessage {
   id: string
   role: MessageRole
@@ -104,6 +183,7 @@ export interface ChatMessage {
   durationMs?: number
   error?: ChatError | null
   guard?: GuardReason
+  agentOffer?: AgentOffer
 }
 
 export interface ChatError {
@@ -345,6 +425,20 @@ export interface ChelpAPI {
     captureWindow(sourceId: string): Promise<CaptureResult | null>
     saveImage(dataUrl: string, name?: string): Promise<Attachment>
     pickImages(): Promise<Attachment[]>
+  }
+  agent: {
+    prepare(input: {
+      conversationId: string
+      messageId: string
+      goal: string
+      kind: AgentKind
+      url?: string
+    }): Promise<AgentPrepared | { error: string }>
+    plan(id: string, lang: Lang): Promise<AgentPlan | { error: string }>
+    run(id: string, lang: Lang): Promise<{ ok: boolean; error?: string }>
+    cancel(): Promise<void>
+    onStep(cb: (event: { id: string; step: AgentStep; total: number }) => void): () => void
+    onRun(cb: (event: AgentRunEvent) => void): () => void
   }
   notify(payload: { title: string; body: string }): void
   hotkeys: {

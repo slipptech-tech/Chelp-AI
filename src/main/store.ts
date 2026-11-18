@@ -30,6 +30,9 @@ const DEFAULT_SETTINGS: Settings = {
   enterToSend: true,
   reduceMotion: false,
   checkUpdates: true,
+  photoRetentionDays: 14,
+  agentPermission: 'ask',
+  agentAllowedChats: [],
   hotkeysEnabled: true,
   hotkeys: { float: 'Ctrl+Shift+Space', capture: 'Ctrl+Shift+X' },
   providers: DEFAULT_PROVIDERS,
@@ -125,7 +128,11 @@ export class Store {
         const legacy = p.kind === 'deepseek' ? LEGACY_DEEPSEEK_MODELS[p.model] : undefined
         return { ...p, ...(legacy ?? {}), apiKey: decryptKey(p.apiKey) }
       }),
-      activeProviderId: raw.activeProviderId ?? storedProviders[0].id
+      activeProviderId: raw.activeProviderId ?? storedProviders[0].id,
+      agentPermission: raw.agentPermission === 'always' ? 'always' : 'ask',
+      agentAllowedChats: Array.isArray(raw.agentAllowedChats)
+        ? raw.agentAllowedChats.filter((id): id is string => typeof id === 'string')
+        : []
     }
     if (!this.settings.providers.some((p) => p.id === this.settings.activeProviderId)) {
       this.settings.activeProviderId = this.settings.providers[0].id
@@ -231,6 +238,39 @@ export class Store {
         const file = path.join(this.photosDir, entry.name)
         try {
           freed += fs.statSync(file).size
+          fs.rmSync(file, { force: true })
+        } catch {
+          /* ignore locked file */
+        }
+      }
+    } catch {
+      /* folder missing */
+    }
+    return freed
+  }
+
+  /** Deletes old screenshots that are no longer referenced by any conversation. */
+  prunePhotos(): number {
+    const days = Number(this.settings.photoRetentionDays)
+    if (!Number.isFinite(days) || days <= 0) return 0
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
+    const referenced = new Set<string>()
+    for (const conversation of this.conversations) {
+      for (const message of conversation.messages) {
+        for (const attachment of message.attachments ?? []) {
+          if (attachment.path) referenced.add(path.basename(attachment.path))
+        }
+      }
+    }
+    let freed = 0
+    try {
+      for (const entry of fs.readdirSync(this.photosDir, { withFileTypes: true })) {
+        if (!entry.isFile() || referenced.has(entry.name)) continue
+        const file = path.join(this.photosDir, entry.name)
+        try {
+          const stat = fs.statSync(file)
+          if (stat.mtimeMs >= cutoff) continue
+          freed += stat.size
           fs.rmSync(file, { force: true })
         } catch {
           /* ignore locked file */

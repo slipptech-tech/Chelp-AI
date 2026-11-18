@@ -1,7 +1,8 @@
 import { BrowserWindow, Notification, app, clipboard, ipcMain, shell } from 'electron'
-import type { AppCommand, CaptureQuality, ChatMode, Provider, SendChatPayload, Settings } from '@shared/types'
+import type { AgentKind, AppCommand, CaptureQuality, ChatMode, Lang, Provider, SendChatPayload, Settings } from '@shared/types'
 import { getStore } from './store'
 import { abortRequest, listLocalModels, regenerate, sendChat, testProvider } from './ai'
+import { buildAgentPlan, cancelAgent, prepareAgent, runAgent } from './agent'
 import { connectOpenRouter } from './openrouter'
 import { installOllama, ollamaStatus, pullOllamaModel, startOllama } from './ollama'
 import { captureWindow, listScreens, listWindows, selectRegion } from './capture'
@@ -161,6 +162,17 @@ export function registerIpc(): void {
     return getStore().saveAttachment(dataUrl, name)
   })
   ipcMain.handle('capture:pick-images', (event) => getStore().pickImages(parentOf(event)))
+
+  ipcMain.handle(
+    'agent:prepare',
+    (
+      _event,
+      input: { conversationId: string; messageId: string; goal: string; kind: AgentKind; url?: string }
+    ) => prepareAgent(input)
+  )
+  ipcMain.handle('agent:plan', (_event, id: string, lang: Lang) => buildAgentPlan(id, lang))
+  ipcMain.handle('agent:run', (_event, id: string, lang: Lang) => runAgent(id, lang))
+  ipcMain.handle('agent:cancel', () => cancelAgent())
 
   ipcMain.handle('float:toggle', () => toggleFloatWindow())
   ipcMain.handle('float:hide', () => hideFloatWindow())

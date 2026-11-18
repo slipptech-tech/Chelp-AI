@@ -1128,3 +1128,20 @@ html[data-motion='reduced'] *::after {
   transition-delay: 0ms !important;
   scroll-behavior: auto !important;
 }
+
+/* ---------- Rotating thinking text ---------- */
+.thinking-text {
+  display: inline-block;
+  animation: think-fade 0.28s ease;
+}
+
+@keyframes think-fade {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

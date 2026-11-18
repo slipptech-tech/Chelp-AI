@@ -1,5 +1,8 @@
 import { create } from 'zustand'
 import type {
+  AgentOffer,
+  AgentPlan,
+  AgentPrepared,
   Attachment,
   ChatError,
   ChatMessage,
@@ -61,6 +64,39 @@ const INITIAL_UPDATE: UpdateState = {
   error: null
 }
 
+export type AgentStage =
+  | 'idle'
+  | 'preparing'
+  | 'prepared'
+  | 'planning'
+  | 'planned'
+  | 'running'
+  | 'done'
+  | 'cancelled'
+  | 'error'
+
+export interface AgentUiState {
+  stage: AgentStage
+  messageId: string | null
+  conversationId: string | null
+  prepared: AgentPrepared | null
+  plan: AgentPlan | null
+  error: string | null
+  step: number
+  total: number
+}
+
+const INITIAL_AGENT: AgentUiState = {
+  stage: 'idle',
+  messageId: null,
+  conversationId: null,
+  prepared: null,
+  plan: null,
+  error: null,
+  step: 0,
+  total: 0
+}
+
 const fallbackSettings: Settings = {
   language: 'en',
   accent: 'violet',
@@ -76,6 +112,9 @@ const fallbackSettings: Settings = {
   enterToSend: true,
   reduceMotion: false,
   checkUpdates: true,
+  photoRetentionDays: 14,
+  agentPermission: 'ask',
+  agentAllowedChats: [],
   hotkeysEnabled: true,
   hotkeys: { float: 'Ctrl+Shift+Space', capture: 'Ctrl+Shift+X' },
   providers: DEFAULT_PROVIDERS,
@@ -93,6 +132,15 @@ function uid(): string {
   }
 }
 
+function agentErrorText(language: Lang, code: string): string {
+  if (/^(provider_\d+|input_exit_\d+)$/.test(code)) {
+    return translate(language, 'agent.errors.provider')
+  }
+  const key = `agent.errors.${code}`
+  const text = translate(language, key)
+  return text === key ? translate(language, 'agent.errors.unknown') : text
+}
+
 interface AppState {
   ready: boolean
   settings: Settings
@@ -108,6 +156,7 @@ interface AppState {
   loadingConversation: boolean
   storage: StorageInfo | null
   update: UpdateState
+  agent: AgentUiState
 
   init: () => Promise<void>
   navigate: (page: Page) => void
@@ -118,6 +167,18 @@ interface AppState {
   downloadUpdate: () => Promise<void>
   installUpdate: () => Promise<void>
   dismissUpdate: () => void
+  agentStart: (
+    messageId: string,
+    conversationId: string,
+    offer: AgentOffer,
+    run?: boolean
+  ) => Promise<void>
+  agentBuildPlan: () => Promise<boolean>
+  agentRun: () => Promise<void>
+  agentCancel: () => Promise<void>
+  agentReset: () => void
+  agentAllowChat: (conversationId: string) => Promise<void>
+  agentForgetChat: (conversationId: string) => Promise<void>
   refreshConversations: () => Promise<void>
   refreshSaved: () => Promise<void>
   openConversation: (id: string) => Promise<void>
@@ -161,6 +222,7 @@ export const useApp = create<AppState>((set, get) => ({
   loadingConversation: false,
   storage: null,
   update: INITIAL_UPDATE,
+  agent: INITIAL_AGENT,
 
   init: async () => {
     const [settings, version, conversations, saved] = await Promise.all([
@@ -246,6 +308,103 @@ export const useApp = create<AppState>((set, get) => ({
 
   dismissUpdate: () => set((state) => ({ update: { ...state.update, dismissed: true } })),
 
+  agentStart: async (messageId, conversationId, offer, run = false) => {
+    const language = get().settings.language
+    set({
+      agent: {
+        ...INITIAL_AGENT,
+        stage: 'preparing',
+        messageId,
+        conversationId
+      }
+    })
+    const result = await window.chelp.agent.prepare({
+      conversationId,
+      messageId,
+      goal: offer.goal,
+      kind: offer.kind,
+      url: offer.url
+    })
+    if ('error' in result) {
+      set((state) => ({ agent: { ...state.agent, stage: 'error', error: result.error } }))
+      get().toast(agentErrorText(language, result.error), 'error')
+      return
+    }
+    set((state) => ({
+      agent: { ...state.agent, stage: 'prepared', prepared: result, total: 0, step: 0 }
+    }))
+    if (run) {
+      if (await get().agentBuildPlan()) await get().agentRun()
+    } else if (!result.needsScreenshot) {
+      void get().agentBuildPlan()
+    }
+  },
+
+  agentBuildPlan: async () => {
+    const state = get()
+    if (!state.agent.prepared) return false
+    const language = state.settings.language
+    set((current) => ({ agent: { ...current.agent, stage: 'planning', error: null } }))
+    const result = await window.chelp.agent.plan(state.agent.prepared.id, language)
+    if ('error' in result) {
+      set((current) => ({ agent: { ...current.agent, stage: 'error', error: result.error } }))
+      get().toast(agentErrorText(language, result.error), 'error')
+      return false
+    }
+    set((current) => ({
+      agent: { ...current.agent, stage: 'planned', plan: result, total: result.steps.length, step: 0 }
+    }))
+    return true
+  },
+
+  agentRun: async () => {
+    const state = get()
+    if (!state.agent.plan) return
+    const language = state.settings.language
+    set((current) => ({
+      agent: {
+        ...current.agent,
+        stage: 'running',
+        error: null,
+        plan: current.agent.plan
+          ? {
+              ...current.agent.plan,
+              steps: current.agent.plan.steps.map((step) => ({ ...step, status: 'pending' }))
+            }
+          : null
+      }
+    }))
+    const result = await window.chelp.agent.run(state.agent.plan.id, language)
+    if (!result.ok && result.error) {
+      const current = get().agent
+      if (current.stage === 'running') {
+        set((agent) => ({
+          agent: { ...agent.agent, stage: 'error', error: result.error ?? 'run_failed' }
+        }))
+      }
+    }
+  },
+
+  agentCancel: async () => {
+    await window.chelp.agent.cancel()
+  },
+
+  agentReset: () => set({ agent: INITIAL_AGENT }),
+
+  agentAllowChat: async (conversationId) => {
+    const chats = get().settings.agentAllowedChats
+    if (chats.includes(conversationId)) return
+    await get().updateSettings({ agentAllowedChats: [...chats, conversationId] })
+  },
+
+  agentForgetChat: async (conversationId) => {
+    const chats = get().settings.agentAllowedChats
+    if (!chats.includes(conversationId)) return
+    await get().updateSettings({
+      agentAllowedChats: chats.filter((id) => id !== conversationId)
+    })
+  },
+
   navigate: (page) => set({ page }),
 
   updateSettings: async (patch) => {
@@ -317,6 +476,11 @@ export const useApp = create<AppState>((set, get) => ({
 
   deleteConversation: async (id) => {
     await window.chelp.conversations.remove(id)
+    if (get().settings.agentAllowedChats.includes(id)) {
+      await get().updateSettings({
+        agentAllowedChats: get().settings.agentAllowedChats.filter((chat) => chat !== id)
+      })
+    }
     set((state) => ({
       conversation: state.conversationId === id ? null : state.conversation,
       conversationId: state.conversationId === id ? null : state.conversationId
@@ -325,6 +489,9 @@ export const useApp = create<AppState>((set, get) => ({
 
   clearHistory: async () => {
     await window.chelp.conversations.clearAll()
+    if (get().settings.agentAllowedChats.length) {
+      await get().updateSettings({ agentAllowedChats: [] })
+    }
     set({ conversation: null, conversationId: null, saved: [] })
   },
 
@@ -507,6 +674,53 @@ export function wireEvents(): () => void {
       useApp.setState((state) => ({
         update: { ...state.update, downloading: false, ready: false, progress: null, error: message }
       }))
+    }),
+    api.agent.onStep(({ id, step, total }) => {
+      useApp.setState((state) => {
+        const agent = state.agent
+        const planId = agent.plan?.id
+        const planned = agent.prepared?.id
+        if (!planId || (planId !== id && planned !== id)) return {}
+        return {
+          agent: {
+            ...agent,
+            total,
+            step: step.status === 'running' ? Math.max(agent.step, step.index - 1) : step.index,
+            plan: agent.plan
+              ? {
+                  ...agent.plan,
+                  steps: agent.plan.steps.map((entry) =>
+                    entry.index === step.index ? step : entry
+                  )
+                }
+              : agent.plan
+          }
+        }
+      })
+    }),
+    api.agent.onRun(({ status, step, total, message }) => {
+      useApp.setState((state) => {
+        const agent = state.agent
+        if (agent.stage !== 'running' && status === 'running') {
+          return { agent: { ...agent, stage: 'running', step, total } }
+        }
+        if (status === 'running') {
+          return { agent: { ...agent, step, total } }
+        }
+        const language = state.settings.language
+        if (status === 'error' && message) {
+          useApp.getState().toast(agentErrorText(language, message), 'error')
+        }
+        return {
+          agent: {
+            ...agent,
+            stage: status === 'cancelled' ? 'cancelled' : status === 'error' ? 'error' : 'done',
+            step,
+            total,
+            error: status === 'error' ? message ?? agent.error : agent.error
+          }
+        }
+      })
     })
   ]
   return () => {

@@ -56,6 +56,16 @@ if (!gotLock) {
     createTray()
     registerShortcuts()
 
+    const pruneScreenshots = (): void => {
+      try {
+        store.prunePhotos()
+      } catch {
+        /* cleanup is best effort */
+      }
+    }
+    pruneScreenshots()
+    setInterval(pruneScreenshots, 6 * 60 * 60 * 1000)
+
     const applyLogin = (enabled: boolean): void => {
       if (!app.isPackaged) return
       try {

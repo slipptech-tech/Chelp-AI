@@ -93,6 +93,14 @@ const api = {
     saveImage: (dataUrl, name) => electron.ipcRenderer.invoke("capture:save-image", dataUrl, name),
     pickImages: () => electron.ipcRenderer.invoke("capture:pick-images")
   },
+  agent: {
+    prepare: (input) => electron.ipcRenderer.invoke("agent:prepare", input),
+    plan: (id, lang) => electron.ipcRenderer.invoke("agent:plan", id, lang),
+    run: (id, lang) => electron.ipcRenderer.invoke("agent:run", id, lang),
+    cancel: () => electron.ipcRenderer.invoke("agent:cancel"),
+    onStep: (cb) => subscribe("agent:step", cb),
+    onRun: (cb) => subscribe("agent:run", cb)
+  },
   notify: (payload) => electron.ipcRenderer.send("app:notify", payload),
   hotkeys: {
     onError: (cb) => subscribe("app:hotkey-error", cb)

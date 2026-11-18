@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
+  AgentKind,
   AppCommand,
   Attachment,
   CaptureQuality,
@@ -8,6 +9,7 @@ import type {
   Conversation,
   ConversationMeta,
   ExportResult,
+  Lang,
   LocalModelsResult,
   LocalRuntimeResult,
   LocalRuntimeStatus,
@@ -127,6 +129,20 @@ const api = {
     saveImage: (dataUrl: string, name?: string): Promise<Attachment> =>
       ipcRenderer.invoke('capture:save-image', dataUrl, name),
     pickImages: (): Promise<Attachment[]> => ipcRenderer.invoke('capture:pick-images')
+  },
+  agent: {
+    prepare: (input: {
+      conversationId: string
+      messageId: string
+      goal: string
+      kind: AgentKind
+      url?: string
+    }) => ipcRenderer.invoke('agent:prepare', input),
+    plan: (id: string, lang: Lang) => ipcRenderer.invoke('agent:plan', id, lang),
+    run: (id: string, lang: Lang) => ipcRenderer.invoke('agent:run', id, lang),
+    cancel: (): Promise<void> => ipcRenderer.invoke('agent:cancel'),
+    onStep: (cb: Parameters<ChelpAPI['agent']['onStep']>[0]) => subscribe('agent:step', cb),
+    onRun: (cb: Parameters<ChelpAPI['agent']['onRun']>[0]) => subscribe('agent:run', cb)
   },
   notify: (payload: { title: string; body: string }): void => ipcRenderer.send('app:notify', payload),
   hotkeys: {

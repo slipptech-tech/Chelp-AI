@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Shield,
   SlidersHorizontal,
+  Sparkles,
   Trash2
 } from 'lucide-react'
 import type { Accent, Hotkeys } from '@shared/types'
@@ -332,6 +333,20 @@ export function SettingsPage() {
               </Button>
             </div>
           </SettingRow>
+          <SettingRow title={t('settings.photoCleanup')} hint={t('settings.photoCleanupHint')}>
+            <Segmented
+              value={settings.photoRetentionDays > 0 ? String(settings.photoRetentionDays) : 'never'}
+              onChange={(value) =>
+                void updateSettings({ photoRetentionDays: value === 'never' ? 0 : Number(value) })
+              }
+              options={[
+                { value: 'never', label: t('settings.photoCleanup.never') },
+                { value: '7', label: t('settings.photoCleanup.7') },
+                { value: '30', label: t('settings.photoCleanup.30') },
+                { value: '90', label: t('settings.photoCleanup.90') }
+              ]}
+            />
+          </SettingRow>
         </section>
 
         <section className="settings-card about-card">
@@ -379,6 +394,39 @@ export function SettingsPage() {
               {t('settings.guardBadge')}
             </span>
           </SettingRow>
+        </section>
+
+        <section className="settings-card">
+          <div className="settings-card-head">
+            <span className="settings-icon">
+              <Sparkles size={16} />
+            </span>
+            <h3>{t('settings.agentActions')}</h3>
+          </div>
+          <SettingRow title={t('settings.agentPermission')} hint={t('settings.agentActionsHint')}>
+            <Segmented
+              value={settings.agentPermission}
+              onChange={(agentPermission) => void updateSettings({ agentPermission })}
+              options={[
+                { value: 'ask', label: t('settings.agentActions.ask') },
+                { value: 'always', label: t('settings.agentActions.always') }
+              ]}
+            />
+          </SettingRow>
+          {settings.agentAllowedChats.length > 0 ? (
+            <SettingRow
+              title={t('settings.agentChats')}
+              hint={t('settings.agentChatsHint', { n: settings.agentAllowedChats.length })}
+            >
+              <Button
+                size="sm"
+                icon={<RotateCcw size={12} />}
+                onClick={() => void updateSettings({ agentAllowedChats: [] })}
+              >
+                {t('settings.agentChatsReset')}
+              </Button>
+            </SettingRow>
+          ) : null}
         </section>
 
         <section className="settings-card">

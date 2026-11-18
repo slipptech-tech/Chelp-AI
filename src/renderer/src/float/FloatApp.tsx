@@ -24,6 +24,7 @@ import { translate } from '../i18n'
 import { formatKey } from '../lib/format'
 import { Logo } from '../components/Logo'
 import { Markdown } from '../components/Markdown'
+import { ThinkingText } from '../components/Thinking'
 import { IconButton, Spinner } from '../components/ui'
 
 const STORAGE_KEY = 'chelp.float.conversation'
@@ -349,10 +350,13 @@ export function FloatApp() {
                       <span className="stream-caret" />
                     </>
                   ) : (
-                    <div className="thinking-dots">
-                      <span />
-                      <span />
-                      <span />
+                    <div className="float-thinking">
+                      <div className="thinking-dots">
+                        <span />
+                        <span />
+                        <span />
+                      </div>
+                      <ThinkingText />
                     </div>
                   )}
                 </div>

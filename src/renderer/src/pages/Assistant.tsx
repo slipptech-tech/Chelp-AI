@@ -26,6 +26,8 @@ import { useSettings, useT } from '../hooks'
 import { formatClock, groupConversations, relativeTime } from '../lib/format'
 import { Logo } from '../components/Logo'
 import { Markdown } from '../components/Markdown'
+import { AgentCard } from '../components/AgentCard'
+import { ThinkingText } from '../components/Thinking'
 import { Button, IconButton, Modal, Spinner } from '../components/ui'
 
 export function AssistantPage() {
@@ -654,6 +656,15 @@ function MessageRow({
           </div>
         ) : null}
         {message.guard ? <div className="msg-guard">{t('assistant.guardNote')}</div> : null}
+        {message.agentOffer ? (
+          <AgentCard
+            messageId={message.id}
+            offer={message.agentOffer}
+            providerLabel={message.providerLabel}
+            createdAt={message.createdAt}
+            latest={isLast}
+          />
+        ) : null}
         <div className="msg-actions">
           <button type="button" onClick={onCopy} title={t('common.copy')}>
             <Copy size={13} />
@@ -693,7 +704,7 @@ function StreamingRow({ text, providerLabel }: { text: string; providerLabel: st
           <span className="msg-provider">{providerLabel}</span>
           <span className="msg-live">
             <span className="live-dot" />
-            {text ? t('assistant.generating') : t('assistant.thinking')}
+            {text ? t('assistant.generating') : <ThinkingText />}
           </span>
         </div>
         {text ? (

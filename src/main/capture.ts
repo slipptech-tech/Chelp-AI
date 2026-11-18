@@ -97,6 +97,17 @@ export async function captureWindow(sourceId: string): Promise<CaptureResult | n
   return { dataUrl: source.thumbnail.toDataURL(), width: size.width, height: size.height }
 }
 
+/** Snapshot of the primary display with Chelp windows hidden, for agent planning. */
+export async function captureForAgent(): Promise<CaptureResult | null> {
+  const restore = hideAppWindows()
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 180))
+    return await captureDisplay(screen.getPrimaryDisplay().id)
+  } finally {
+    while (restore.length) restore.pop()?.()
+  }
+}
+
 function settleOverlay(result: CaptureResult | null): void {
   if (!activeOverlay || activeOverlay.settled) return
   activeOverlay.settled = true
