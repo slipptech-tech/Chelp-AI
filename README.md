@@ -164,3 +164,15 @@ Electron 33 · React 19 · TypeScript 5 · Vite 6 / electron-vite 3 · Zustand �
 ## License
 
 Proprietary software. © SlippTech. All rights reserved.
+
+---
+
+<div align="center">
+  <a href="https://www.youtube.com/@Chelpai">
+    <img src="https://cdn.simpleicons.org/youtube/FF0000" width="20" height="20" alt="YouTube" />
+  </a>
+  <br>
+  <strong>Our YouTube Channel</strong>
+  <br>
+  <a href="https://www.youtube.com/@Chelpai">youtube.com/@Chelpai</a>
+</div>
