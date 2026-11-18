@@ -1,0 +1,27 @@
+appId: dev.slipptech.chelp
+productName: Chelp AI
+directories:
+  buildResources: build
+files:
+  - out/**/*
+  - resources/**/*
+  - package.json
+asarUnpack:
+  - resources/**
+win:
+  target:
+    - nsis
+    - portable
+  icon: build/icon.png
+portable:
+  artifactName: Chelp-AI-${version}-portable.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: Chelp AI
+  installerLanguages:
+    - en_US
+  multiLanguageInstaller: false
+  displayLanguageSelector: false

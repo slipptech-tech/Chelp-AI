@@ -1,0 +1,42 @@
+{
+  "name": "chelp-ai",
+  "productName": "Chelp AI",
+  "version": "1.0.0",
+  "description": "Your Desktop. Your Context. Your AI.",
+  "main": "./out/main/index.js",
+  "author": "SlippTech",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "build": "electron-vite build",
+    "icon": "node scripts/make-icon.mjs",
+    "dist": "npm run build && electron-builder --win"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "^5.2.5",
+    "@fontsource-variable/jetbrains-mono": "^5.2.5",
+    "highlight.js": "^11.11.1",
+    "lucide-react": "^0.469.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-markdown": "^9.0.3",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.0",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/react": "^19.0.3",
+    "@types/react-dom": "^19.0.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.3.1",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^3.0.0",
+    "sharp": "^0.35.5",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
+  }
+}

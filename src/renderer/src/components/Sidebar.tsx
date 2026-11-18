@@ -1,0 +1,112 @@
+import {
+  Bookmark,
+  Cpu,
+  History,
+  Layers,
+  LayoutDashboard,
+  MessagesSquare,
+  MonitorUp,
+  Settings2,
+  type LucideIcon
+} from 'lucide-react'
+import { isProviderReady } from '@shared/providers'
+import { useApp, type Page } from '../store'
+import { useT } from '../hooks'
+
+interface NavItem {
+  page: Page
+  label: string
+  icon: LucideIcon
+}
+
+export function Sidebar() {
+  const t = useT()
+  const page = useApp((state) => state.page)
+  const navigate = useApp((state) => state.navigate)
+  const settings = useApp((state) => state.settings)
+  const version = useApp((state) => state.version)
+  const toast = useApp((state) => state.toast)
+
+  const provider =
+    settings.providers.find((item) => item.id === settings.activeProviderId) ??
+    settings.providers[0]
+  const ready = settings.providers.some(isProviderReady)
+
+  const workspace: NavItem[] = [
+    { page: 'dashboard', label: t('nav.dashboard'), icon: LayoutDashboard },
+    { page: 'assistant', label: t('nav.assistant'), icon: MessagesSquare },
+    { page: 'screen', label: t('nav.screen'), icon: MonitorUp }
+  ]
+  const library: NavItem[] = [
+    { page: 'history', label: t('nav.history'), icon: History },
+    { page: 'saved', label: t('nav.saved'), icon: Bookmark }
+  ]
+  const system: NavItem[] = [
+    { page: 'settings', label: t('nav.settings'), icon: Settings2 },
+    { page: 'ai', label: t('nav.ai'), icon: Cpu }
+  ]
+
+  const renderGroup = (label: string, items: NavItem[]) => (
+    <div className="nav-group" key={label}>
+      <span className="nav-label">{label}</span>
+      {items.map((item) => {
+        const Icon = item.icon
+        return (
+          <button
+            key={item.page}
+            type="button"
+            className={`nav-item ${page === item.page ? 'is-active' : ''}`}
+            onClick={() => navigate(item.page)}
+          >
+            <Icon size={17} strokeWidth={1.8} />
+            <span>{item.label}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+
+  const toggleFloat = async (): Promise<void> => {
+    const visible = await window.chelp.float.toggle()
+    toast(t(visible ? 'toast.floatOpened' : 'toast.floatClosed'), 'info')
+  }
+
+  return (
+    <aside className="sidebar">
+      <nav className="sidebar-nav">
+        {renderGroup(t('nav.workspace'), workspace)}
+        {renderGroup(t('nav.library'), library)}
+        {renderGroup(t('nav.system'), system)}
+      </nav>
+
+      <div className="sidebar-footer">
+        <button type="button" className="float-launch" onClick={toggleFloat}>
+          <span className="float-launch-icon">
+            <Layers size={16} />
+          </span>
+          <span className="float-launch-text">
+            <strong>{t('nav.float')}</strong>
+            <span>{t('nav.floatHint')}</span>
+          </span>
+          <span className="float-launch-orb" />
+        </button>
+
+        <button type="button" className="provider-card" onClick={() => navigate('ai')}>
+          <span className={`status-dot ${ready ? 'is-ready' : 'is-missing'}`} />
+          <span className="provider-card-text">
+            <strong>{provider?.name ?? t('nav.apiMissing')}</strong>
+            <span>{provider?.model ?? '—'}</span>
+          </span>
+          <span className="provider-card-state">
+            {ready ? t('nav.apiReady') : t('nav.apiMissing')}
+          </span>
+        </button>
+
+        <div className="sidebar-meta">
+          <span>Chelp AI</span>
+          <span>v{version || '1.0.0'}</span>
+        </div>
+      </div>
+    </aside>
+  )
+}
