@@ -431,10 +431,12 @@ export function AssistantPage() {
               placeholder={t('assistant.composer.placeholder')}
               onChange={(event) => setText(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                  event.preventDefault()
-                  handleSend()
-                }
+                if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
+                const chord = event.ctrlKey || event.metaKey
+                const send = settings.enterToSend ? !event.shiftKey : chord
+                if (!send) return
+                event.preventDefault()
+                handleSend()
               }}
             />
             <div className="composer-bar">
@@ -482,7 +484,9 @@ export function AssistantPage() {
               </div>
             </div>
           </div>
-          <span className="composer-hint">{t('assistant.composer.hint')}</span>
+          <span className="composer-hint">
+            {t(settings.enterToSend ? 'assistant.composer.hint' : 'assistant.composer.hintCtrl')}
+          </span>
         </div>
       </section>
 

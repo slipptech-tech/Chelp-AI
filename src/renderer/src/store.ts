@@ -7,11 +7,15 @@ import type {
   Conversation,
   ConversationMeta,
   SavedAnswer,
-  Settings
+  Settings,
+  StorageInfo,
+  UpdateInfo,
+  UpdateProgress
 } from '@shared/types'
 import { DEFAULT_PROVIDERS } from '@shared/providers'
 import type { Lang } from '@shared/types'
 import { translate } from './i18n'
+import { formatBytes } from './lib/format'
 
 export type Page =
   | 'dashboard'
@@ -35,10 +39,33 @@ export interface StreamingState {
   mode: ChatMode
 }
 
+export interface UpdateState {
+  info: UpdateInfo | null
+  checking: boolean
+  downloading: boolean
+  installing: boolean
+  progress: UpdateProgress | null
+  ready: boolean
+  dismissed: boolean
+  error: string | null
+}
+
+const INITIAL_UPDATE: UpdateState = {
+  info: null,
+  checking: false,
+  downloading: false,
+  installing: false,
+  progress: null,
+  ready: false,
+  dismissed: false,
+  error: null
+}
+
 const fallbackSettings: Settings = {
   language: 'en',
   accent: 'violet',
   startAtLogin: false,
+  startMinimized: false,
   closeToTray: true,
   notifyOnDone: true,
   streaming: true,
@@ -46,6 +73,9 @@ const fallbackSettings: Settings = {
   saveHistory: true,
   confirmBeforeSend: true,
   captureQuality: 'high',
+  enterToSend: true,
+  reduceMotion: false,
+  checkUpdates: true,
   hotkeysEnabled: true,
   hotkeys: { float: 'Ctrl+Shift+Space', capture: 'Ctrl+Shift+X' },
   providers: DEFAULT_PROVIDERS,
@@ -76,10 +106,18 @@ interface AppState {
   chatErrors: Record<string, ChatError | undefined>
   toasts: Toast[]
   loadingConversation: boolean
+  storage: StorageInfo | null
+  update: UpdateState
 
   init: () => Promise<void>
   navigate: (page: Page) => void
   updateSettings: (patch: Partial<Settings>) => Promise<void>
+  refreshStorage: () => Promise<void>
+  clearPhotos: () => Promise<void>
+  checkUpdates: (manual?: boolean) => Promise<void>
+  downloadUpdate: () => Promise<void>
+  installUpdate: () => Promise<void>
+  dismissUpdate: () => void
   refreshConversations: () => Promise<void>
   refreshSaved: () => Promise<void>
   openConversation: (id: string) => Promise<void>
@@ -121,6 +159,8 @@ export const useApp = create<AppState>((set, get) => ({
   chatErrors: {},
   toasts: [],
   loadingConversation: false,
+  storage: null,
+  update: INITIAL_UPDATE,
 
   init: async () => {
     const [settings, version, conversations, saved] = await Promise.all([
@@ -130,7 +170,81 @@ export const useApp = create<AppState>((set, get) => ({
       window.chelp.saved.list()
     ])
     set({ settings, version, conversations, saved, ready: true })
+    void get().refreshStorage()
+    if (settings.checkUpdates) {
+      setTimeout(() => void get().checkUpdates(), 1800)
+    }
   },
+
+  refreshStorage: async () => {
+    try {
+      set({ storage: await window.chelp.storage.info() })
+    } catch {
+      /* storage info is informational */
+    }
+  },
+
+  clearPhotos: async () => {
+    const language = get().settings.language
+    const { freed, info } = await window.chelp.storage.clearPhotos()
+    set({ storage: info })
+    get().toast(translate(language, 'settings.photosCleared', { size: formatBytes(freed, language) }), 'success')
+  },
+
+  checkUpdates: async (manual = false) => {
+    const language = get().settings.language
+    set((state) => ({ update: { ...state.update, checking: true, error: null } }))
+    const info = await window.chelp.update.check()
+    set((state) => ({ update: { ...state.update, info, checking: false, error: info.error ?? null } }))
+    if (!manual) return
+    if (info.error) get().toast(translate(language, 'settings.updateCheckFailed'), 'error')
+    else if (info.available) get().toast(translate(language, 'settings.updateFound', { version: info.version }), 'info')
+    else get().toast(translate(language, 'settings.upToDate'), 'success')
+  },
+
+  downloadUpdate: async () => {
+    const state = get()
+    if (!state.update.info?.available || state.update.downloading) return
+    const version = state.update.info.version
+    set((current) => ({
+      update: {
+        ...current.update,
+        downloading: true,
+        ready: false,
+        error: null,
+        dismissed: false,
+        progress: { version, received: 0, total: 0, percent: 0 }
+      }
+    }))
+    const result = await window.chelp.update.download()
+    if (!result.ok) {
+      set((current) => ({
+        update: {
+          ...current.update,
+          downloading: false,
+          ready: false,
+          progress: null,
+          error: result.error ?? 'download_failed'
+        }
+      }))
+      get().toast(translate(get().settings.language, 'settings.updateFailed'), 'error')
+      return
+    }
+    set((current) => ({
+      update: { ...current.update, downloading: false, ready: true, progress: null, error: null }
+    }))
+  },
+
+  installUpdate: async () => {
+    set((state) => ({ update: { ...state.update, installing: true } }))
+    const result = await window.chelp.update.install()
+    if (!result.ok) {
+      set((state) => ({ update: { ...state.update, installing: false, error: result.error ?? 'install_failed' } }))
+      get().toast(translate(get().settings.language, 'settings.updateFailed'), 'error')
+    }
+  },
+
+  dismissUpdate: () => set((state) => ({ update: { ...state.update, dismissed: true } })),
 
   navigate: (page) => set({ page }),
 
@@ -367,6 +481,32 @@ export function wireEvents(): () => void {
     api.hotkeys.onError((keys) => {
       const language = useApp.getState().settings.language
       useApp.getState().toast(translate(language, 'errors.hotkey', { keys }), 'error')
+    }),
+    api.update.onAvailable((info) => {
+      useApp.setState((state) => ({
+        update: { ...state.update, info, checking: false, dismissed: false }
+      }))
+    }),
+    api.update.onProgress((progress) => {
+      useApp.setState((state) => ({
+        update: { ...state.update, downloading: true, progress }
+      }))
+    }),
+    api.update.onReady(({ version }) => {
+      useApp.setState((state) => ({
+        update: {
+          ...state.update,
+          ready: true,
+          downloading: false,
+          progress: null,
+          info: state.update.info ? { ...state.update.info, version, available: true } : state.update.info
+        }
+      }))
+    }),
+    api.update.onError(({ message }) => {
+      useApp.setState((state) => ({
+        update: { ...state.update, downloading: false, ready: false, progress: null, error: message }
+      }))
     })
   ]
   return () => {

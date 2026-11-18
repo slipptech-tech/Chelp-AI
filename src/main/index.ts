@@ -11,6 +11,9 @@ import { registerIpc } from './ipc'
 import { registerCaptureIpc } from './capture'
 import { managedOllamaInstalled, startOllama, stopOllama } from './ollama'
 import { warmLocalModel } from './ai'
+import { prepareDataDir } from './paths'
+
+app.setPath('userData', prepareDataDir())
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -56,7 +59,7 @@ if (!gotLock) {
     const applyLogin = (enabled: boolean): void => {
       if (!app.isPackaged) return
       try {
-        app.setLoginItemSettings({ openAtLogin: enabled, path: process.execPath })
+        app.setLoginItemSettings({ openAtLogin: enabled, path: process.execPath, args: ['--startup'] })
       } catch {
         /* ignore */
       }

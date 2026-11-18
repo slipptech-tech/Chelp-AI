@@ -36,6 +36,19 @@ export function formatClock(timestamp: number, lang: Lang): string {
   })
 }
 
+export function formatBytes(bytes: number, lang: Lang): string {
+  if (!bytes || bytes < 0) return lang === 'ru' ? '0 Б' : '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let value = bytes
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  const rounded = value >= 10 || unit === 0 ? Math.round(value) : Math.round(value * 10) / 10
+  return `${rounded.toLocaleString(lang === 'ru' ? 'ru-RU' : 'en-US')} ${units[unit]}`
+}
+
 export function formatKey(accelerator: string): string {
   return accelerator
     .split('+')

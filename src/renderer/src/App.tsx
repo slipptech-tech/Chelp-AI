@@ -20,6 +20,7 @@ export function App() {
   const page = useApp((state) => state.page)
   const language = useApp((state) => state.settings.language)
   const accent = useApp((state) => state.settings.accent)
+  const reduceMotion = useApp((state) => state.settings.reduceMotion)
 
   useEffect(() => {
     const disposeEvents = wireEvents()
@@ -68,7 +69,8 @@ export function App() {
   useEffect(() => {
     document.documentElement.dataset.accent = accent
     document.documentElement.lang = language
-  }, [accent, language])
+    document.documentElement.dataset.motion = reduceMotion ? 'reduced' : 'full'
+  }, [accent, language, reduceMotion])
 
   if (!ready) {
     return (

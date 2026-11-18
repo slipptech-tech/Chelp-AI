@@ -33,6 +33,21 @@ const api = {
   clipboard: {
     write: (text) => electron.ipcRenderer.send("app:copy", text)
   },
+  storage: {
+    info: () => electron.ipcRenderer.invoke("storage:info"),
+    openDataFolder: () => electron.ipcRenderer.send("storage:open-data"),
+    openPhotos: () => electron.ipcRenderer.send("storage:open-photos"),
+    clearPhotos: () => electron.ipcRenderer.invoke("storage:clear-photos")
+  },
+  update: {
+    check: () => electron.ipcRenderer.invoke("update:check"),
+    download: () => electron.ipcRenderer.invoke("update:download"),
+    install: () => electron.ipcRenderer.invoke("update:install"),
+    onAvailable: (cb) => subscribe("update:available", cb),
+    onProgress: (cb) => subscribe("update:progress", cb),
+    onReady: (cb) => subscribe("update:ready", cb),
+    onError: (cb) => subscribe("update:error", cb)
+  },
   providers: {
     test: (provider) => electron.ipcRenderer.invoke("providers:test", provider),
     openrouterAuth: () => electron.ipcRenderer.invoke("providers:openrouter-auth"),

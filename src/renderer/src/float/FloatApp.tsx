@@ -429,10 +429,12 @@ export function FloatApp() {
             placeholder={t('float.placeholder')}
             onChange={(event) => setText(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                event.preventDefault()
-                handleSend()
-              }
+              if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
+              const chord = event.ctrlKey || event.metaKey
+              const send = settings.enterToSend ? !event.shiftKey : chord
+              if (!send) return
+              event.preventDefault()
+              handleSend()
             }}
           />
           <div className="float-input-bar">

@@ -32,6 +32,7 @@ export interface Settings {
   language: Lang
   accent: Accent
   startAtLogin: boolean
+  startMinimized: boolean
   closeToTray: boolean
   notifyOnDone: boolean
   streaming: boolean
@@ -39,6 +40,9 @@ export interface Settings {
   saveHistory: boolean
   confirmBeforeSend: boolean
   captureQuality: CaptureQuality
+  enterToSend: boolean
+  reduceMotion: boolean
+  checkUpdates: boolean
   hotkeysEnabled: boolean
   hotkeys: Hotkeys
   providers: Provider[]
@@ -46,6 +50,34 @@ export interface Settings {
   floatCollapsed: boolean
   mainBounds: WindowBounds | null
   floatBounds: WindowBounds | null
+}
+
+export interface StorageInfo {
+  dataPath: string
+  photosPath: string
+  photos: number
+  photoBytes: number
+}
+
+export interface UpdateInfo {
+  current: string
+  version: string
+  available: boolean
+  name?: string
+  size?: number
+  error?: string
+}
+
+export interface UpdateProgress {
+  version: string
+  received: number
+  total: number
+  percent: number
+}
+
+export interface UpdateResult {
+  ok: boolean
+  error?: string
 }
 
 export interface Attachment {
@@ -247,6 +279,21 @@ export interface ChelpAPI {
     openPath(path: string): void
     focus(command: AppCommand): void
     openConversation(id: string): void
+  }
+  storage: {
+    info(): Promise<StorageInfo>
+    openDataFolder(): void
+    openPhotos(): void
+    clearPhotos(): Promise<{ freed: number; info: StorageInfo }>
+  }
+  update: {
+    check(): Promise<UpdateInfo>
+    download(): Promise<UpdateResult>
+    install(): Promise<UpdateResult>
+    onAvailable(cb: (info: UpdateInfo) => void): () => void
+    onProgress(cb: (progress: UpdateProgress) => void): () => void
+    onReady(cb: (info: { version: string }) => void): () => void
+    onError(cb: (info: { message: string }) => void): () => void
   }
   clipboard: {
     write(text: string): void

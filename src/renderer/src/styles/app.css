@@ -3626,3 +3626,192 @@ button.stat-card:hover {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ---------- Updates & storage ---------- */
+.update-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--accent-line);
+  background:
+    radial-gradient(120px 70px at 100% 0%, rgba(var(--accent-rgb) / 0.22), transparent 70%),
+    linear-gradient(180deg, var(--accent-soft), rgba(255, 255, 255, 0.015));
+  animation: fade-up 0.3s ease both;
+}
+
+.update-card-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.update-card-head strong {
+  flex: 1;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.update-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 6px;
+  background: rgba(var(--accent-rgb) / 0.18);
+  color: var(--accent-light);
+}
+
+.update-card-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 6px;
+  color: var(--text-3);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.update-card-close:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+}
+
+.update-card-text {
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+
+.update-card-text.is-error {
+  color: var(--danger);
+}
+
+.update-card-btn {
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-light);
+  font-size: 10.5px;
+  font-weight: 600;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.update-card-btn:hover {
+  background: rgba(var(--accent-rgb) / 0.22);
+  border-color: var(--accent);
+}
+
+.update-progress {
+  position: relative;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.update-progress > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  min-width: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-solid), var(--accent));
+  box-shadow: 0 0 8px var(--accent-glow);
+  transition: width 0.25s ease;
+}
+
+.update-progress.is-inline {
+  flex: 1;
+  min-width: 70px;
+  max-width: 140px;
+  height: 5px;
+}
+
+.settings-button-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.path-line {
+  margin: -4px 0 10px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.path-line code {
+  display: block;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.update-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 0 4px;
+}
+
+.update-status-main {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.update-status-icon {
+  flex: none;
+  color: var(--text-3);
+}
+
+.update-status-icon.is-ok {
+  color: var(--success);
+}
+
+.update-status-icon.is-new {
+  color: var(--accent-light);
+}
+
+.update-status-icon.is-bad {
+  color: var(--danger);
+}
+
+.update-status-icon.is-spin {
+  animation: spin 0.9s linear infinite;
+}
+
+.update-status-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.update-status-text strong {
+  font-size: 11.5px;
+  font-weight: 550;
+}
+
+.update-status-text span {
+  font-size: 10.5px;
+  color: var(--text-3);
+}

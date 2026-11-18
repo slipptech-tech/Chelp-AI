@@ -81,7 +81,10 @@ export function createMainWindow(): BrowserWindow {
   })
   win.setMenuBarVisibility(false)
   loadPage(win, 'index')
-  win.once('ready-to-show', () => win.show())
+  const startHidden = store.settings.startMinimized && process.argv.includes('--startup')
+  win.once('ready-to-show', () => {
+    if (!startHidden) win.show()
+  })
   win.on('maximize', () => win.webContents.send('window:maximized', true))
   win.on('unmaximize', () => win.webContents.send('window:maximized', false))
   win.on('resize', saveMainBounds)

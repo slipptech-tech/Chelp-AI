@@ -107,6 +107,7 @@ const DEFAULT_SETTINGS = {
   language: "en",
   accent: "violet",
   startAtLogin: false,
+  startMinimized: false,
   closeToTray: true,
   notifyOnDone: true,
   streaming: true,
@@ -114,6 +115,9 @@ const DEFAULT_SETTINGS = {
   saveHistory: true,
   confirmBeforeSend: true,
   captureQuality: "high",
+  enterToSend: true,
+  reduceMotion: false,
+  checkUpdates: true,
   hotkeysEnabled: true,
   hotkeys: { float: "Ctrl+Shift+Space", capture: "Ctrl+Shift+X" },
   providers: DEFAULT_PROVIDERS,
@@ -177,7 +181,7 @@ class Store {
   settingsFile;
   conversationsFile;
   savedFile;
-  attachmentsDir;
+  photosDir;
   writeTimer = null;
   constructor() {
     const dir = electron.app.getPath("userData");
@@ -185,8 +189,10 @@ class Store {
     this.settingsFile = path.join(dir, "settings.json");
     this.conversationsFile = path.join(dir, "conversations.json");
     this.savedFile = path.join(dir, "saved.json");
-    this.attachmentsDir = path.join(dir, "attachments");
-    fs.mkdirSync(this.attachmentsDir, { recursive: true });
+    this.photosDir = path.join(dir, "photos-cache");
+    const legacyPhotos = path.join(dir, "attachments");
+    fs.mkdirSync(this.photosDir, { recursive: true });
+    const movedPhotos = this.moveLegacyPhotos(legacyPhotos);
     const raw = readJson(this.settingsFile, {});
     const storedProviders = Array.isArray(raw.providers) && raw.providers.length > 0 ? raw.providers : DEFAULT_PROVIDERS;
     this.settings = {
@@ -204,11 +210,100 @@ class Store {
     }
     const conversations = readJson(this.conversationsFile, []);
     this.conversations = Array.isArray(conversations) ? conversations : [];
+    if (movedPhotos) this.remapAttachments(legacyPhotos);
+    if (movedPhotos || this.relocateAttachments()) {
+      writeJson(this.conversationsFile, this.conversations);
+    }
     const saved = readJson(this.savedFile, []);
     this.saved = Array.isArray(saved) ? saved : [];
   }
   get attachmentsPath() {
-    return this.attachmentsDir;
+    return this.photosDir;
+  }
+  moveLegacyPhotos(legacyDir) {
+    if (!fs.existsSync(legacyDir)) return false;
+    let moved = false;
+    try {
+      for (const entry of fs.readdirSync(legacyDir, { withFileTypes: true })) {
+        if (!entry.isFile()) continue;
+        const from = path.join(legacyDir, entry.name);
+        const to = path.join(this.photosDir, entry.name);
+        try {
+          if (!fs.existsSync(to)) fs.renameSync(from, to);
+          else fs.rmSync(from, { force: true });
+          moved = true;
+        } catch {
+        }
+      }
+      fs.rmdirSync(legacyDir);
+    } catch {
+    }
+    return moved;
+  }
+  remapAttachments(legacyDir) {
+    const prefix = legacyDir + path.sep;
+    for (const conversation of this.conversations) {
+      for (const message of conversation.messages) {
+        for (const attachment of message.attachments ?? []) {
+          if (attachment.path.startsWith(prefix)) {
+            attachment.path = path.join(this.photosDir, path.basename(attachment.path));
+          }
+        }
+      }
+    }
+  }
+  /** Keeps history working after the Chelp AI folder is moved to another location. */
+  relocateAttachments() {
+    let changed = false;
+    for (const conversation of this.conversations) {
+      for (const message of conversation.messages) {
+        for (const attachment of message.attachments ?? []) {
+          const target = path.join(this.photosDir, path.basename(attachment.path ?? ""));
+          if (attachment.path !== target && !fs.existsSync(attachment.path) && fs.existsSync(target)) {
+            attachment.path = target;
+            changed = true;
+          }
+        }
+      }
+    }
+    return changed;
+  }
+  photoPath(value) {
+    if (value && fs.existsSync(value)) return value;
+    const name = path.basename(value ?? "");
+    return name ? path.join(this.photosDir, name) : value;
+  }
+  photosStats() {
+    let files = 0;
+    let bytes = 0;
+    try {
+      for (const entry of fs.readdirSync(this.photosDir, { withFileTypes: true })) {
+        if (!entry.isFile()) continue;
+        files += 1;
+        try {
+          bytes += fs.statSync(path.join(this.photosDir, entry.name)).size;
+        } catch {
+        }
+      }
+    } catch {
+    }
+    return { path: this.photosDir, files, bytes };
+  }
+  clearPhotos() {
+    let freed = 0;
+    try {
+      for (const entry of fs.readdirSync(this.photosDir, { withFileTypes: true })) {
+        if (!entry.isFile()) continue;
+        const file = path.join(this.photosDir, entry.name);
+        try {
+          freed += fs.statSync(file).size;
+          fs.rmSync(file, { force: true });
+        } catch {
+        }
+      }
+    } catch {
+    }
+    return freed;
   }
   updateSettings(patch) {
     const previousFile = this.settingsFile;
@@ -268,12 +363,7 @@ class Store {
   }
   clearConversations() {
     for (const conversation of this.conversations) this.deleteAttachments(conversation);
-    try {
-      for (const file of fs.readdirSync(this.attachmentsDir)) {
-        fs.rmSync(path.join(this.attachmentsDir, file), { force: true });
-      }
-    } catch {
-    }
+    this.clearPhotos();
     this.conversations = [];
     this.saved = [];
     writeJson(this.savedFile, this.saved);
@@ -285,7 +375,7 @@ class Store {
     for (const message of conversation.messages) {
       for (const attachment of message.attachments ?? []) {
         try {
-          fs.rmSync(attachment.path, { force: true });
+          fs.rmSync(this.photoPath(attachment.path), { force: true });
         } catch {
         }
       }
@@ -329,7 +419,7 @@ class Store {
     if (!match) throw new Error("Unsupported image data");
     const ext = match[1].toLowerCase() === "jpeg" ? "jpg" : match[1].toLowerCase();
     const id = node_crypto.randomUUID();
-    const file = path.join(this.attachmentsDir, `${id}.${ext}`);
+    const file = path.join(this.photosDir, `${id}.${ext}`);
     fs.writeFileSync(file, Buffer.from(match[2], "base64"));
     const size = electron.nativeImage.createFromPath(file).getSize();
     return {
@@ -343,7 +433,7 @@ class Store {
   }
   readAttachmentDataUrl(attachment) {
     try {
-      const file = attachment.path;
+      const file = this.photoPath(attachment.path);
       const ext = path.extname(file).slice(1).replace("jpg", "jpeg");
       const data = fs.readFileSync(file).toString("base64");
       return `data:image/${ext};base64,${data}`;
@@ -435,7 +525,8 @@ class Store {
       for (const message of conversation.messages) {
         for (const attachment of message.attachments ?? []) {
           try {
-            fs.copyFileSync(attachment.path, path.join(path.dirname(result.filePath), path.basename(attachment.path)));
+            const source = this.photoPath(attachment.path);
+            fs.copyFileSync(source, path.join(path.dirname(result.filePath), path.basename(source)));
           } catch {
           }
         }
@@ -471,6 +562,98 @@ function resourcePath(file) {
     if (fs.existsSync(unpacked)) return unpacked;
   }
   return path.join(electron.app.getAppPath(), "resources", file);
+}
+const DATA_FOLDER = "Chelp AI Data";
+const CORE_FILES = ["settings.json", "conversations.json", "saved.json"];
+function isWritable(dir) {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const probe = path.join(dir, ".write-probe");
+    fs.writeFileSync(probe, "ok");
+    fs.rmSync(probe, { force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+function appDataDir() {
+  if (!electron.app.isPackaged) return path.join(electron.app.getAppPath(), DATA_FOLDER);
+  const portableDir = process.env.PORTABLE_EXECUTABLE_DIR?.trim();
+  const base = portableDir ? portableDir : path.dirname(process.execPath);
+  return path.join(base, DATA_FOLDER);
+}
+function copyIfExists(from, to) {
+  if (!fs.existsSync(from) || fs.existsSync(to)) return;
+  try {
+    fs.copyFileSync(from, to);
+  } catch (error) {
+    console.error(`Failed to migrate ${from}`, error);
+  }
+}
+function copyDirIfExists(from, to) {
+  if (!fs.existsSync(from) || fs.existsSync(to)) return;
+  try {
+    fs.cpSync(from, to, { recursive: true });
+  } catch (error) {
+    console.error(`Failed to migrate ${from}`, error);
+  }
+}
+function moveDirIfExists(from, to) {
+  if (!fs.existsSync(from) || fs.existsSync(to)) return;
+  try {
+    fs.renameSync(from, to);
+  } catch {
+  }
+}
+function rewriteAttachmentPaths(target, legacy) {
+  const file = path.join(target, "conversations.json");
+  if (!fs.existsSync(file)) return;
+  try {
+    const conversations = JSON.parse(fs.readFileSync(file, "utf-8"));
+    const legacyAttachments = path.join(legacy, "attachments");
+    const nextAttachments = path.join(target, "attachments");
+    const remap = (value) => {
+      if (!value) return value;
+      const resolved = path.resolve(value);
+      if (resolved.startsWith(legacyAttachments + path.sep)) {
+        return path.join(nextAttachments, path.basename(resolved));
+      }
+      return value;
+    };
+    for (const conversation of Array.isArray(conversations) ? conversations : []) {
+      for (const message of conversation.messages ?? []) {
+        for (const attachment of message.attachments ?? []) {
+          attachment.path = remap(attachment.path);
+        }
+      }
+    }
+    fs.writeFileSync(file, JSON.stringify(conversations, null, 2), "utf-8");
+  } catch (error) {
+    console.error("Failed to rewrite attachment paths", error);
+  }
+}
+function migrateLegacyData(target) {
+  const legacy = path.join(electron.app.getPath("appData"), "Chelp AI");
+  if (path.resolve(legacy) === path.resolve(target) || !fs.existsSync(legacy)) return;
+  const alreadyMoved = CORE_FILES.some((file) => fs.existsSync(path.join(target, file))) || fs.existsSync(path.join(target, "attachments")) || fs.existsSync(path.join(target, "photos-cache"));
+  if (alreadyMoved) return;
+  for (const file of CORE_FILES) {
+    copyIfExists(path.join(legacy, file), path.join(target, file));
+  }
+  copyDirIfExists(path.join(legacy, "attachments"), path.join(target, "attachments"));
+  moveDirIfExists(path.join(legacy, "ollama"), path.join(target, "ollama"));
+  rewriteAttachmentPaths(target, legacy);
+}
+function prepareDataDir() {
+  let dir = appDataDir();
+  if (!isWritable(dir)) {
+    const fallback = path.join(electron.app.getPath("appData"), DATA_FOLDER);
+    console.error(`Data folder is not writable: ${dir}; using ${fallback}`);
+    isWritable(fallback);
+    dir = fallback;
+  }
+  migrateLegacyData(dir);
+  return dir;
 }
 let mainWindow = null;
 let floatWindow = null;
@@ -538,7 +721,10 @@ function createMainWindow() {
   });
   win.setMenuBarVisibility(false);
   loadPage(win, "index");
-  win.once("ready-to-show", () => win.show());
+  const startHidden = store.settings.startMinimized && process.argv.includes("--startup");
+  win.once("ready-to-show", () => {
+    if (!startHidden) win.show();
+  });
   win.on("maximize", () => win.webContents.send("window:maximized", true));
   win.on("unmaximize", () => win.webContents.send("window:maximized", false));
   win.on("resize", saveMainBounds);
@@ -805,7 +991,7 @@ function ollamaExe() {
 function managedOllamaInstalled() {
   return fs.existsSync(ollamaExe());
 }
-function broadcast(payload) {
+function broadcast$1(payload) {
   for (const win of electron.BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) win.webContents.send("ollama:progress", payload);
   }
@@ -837,7 +1023,7 @@ async function startOllama() {
   if (!managedOllamaInstalled()) {
     return { ok: false, status: await ollamaStatus(), error: "not_installed" };
   }
-  broadcast({ phase: "start" });
+  broadcast$1({ phase: "start" });
   child = node_child_process.spawn(ollamaExe(), ["serve"], {
     cwd: ollamaDir(),
     env: {
@@ -874,7 +1060,7 @@ async function downloadZip(target) {
       const now = Date.now();
       if (now - lastReport > 250) {
         lastReport = now;
-        broadcast({
+        broadcast$1({
           phase: "download",
           received,
           total,
@@ -922,14 +1108,14 @@ async function installOllama() {
     try {
       fs.mkdirSync(ollamaDir(), { recursive: true });
       const zip = path.join(ollamaDir(), "ollama-windows-amd64.zip");
-      broadcast({ phase: "download", percent: 0, received: 0 });
+      broadcast$1({ phase: "download", percent: 0, received: 0 });
       try {
         await downloadZip(zip);
       } catch (error) {
         fs.rmSync(`${zip}.part`, { force: true });
         throw error;
       }
-      broadcast({ phase: "extract" });
+      broadcast$1({ phase: "extract" });
       await extractZip(zip, ollamaDir());
       fs.rmSync(zip, { force: true });
       const started = await startOllama();
@@ -986,7 +1172,7 @@ async function pullOllamaModel(model) {
         const now = Date.now();
         if (now - lastReport > 200) {
           lastReport = now;
-          broadcast({
+          broadcast$1({
             phase: "pull",
             model: name,
             status: event.status,
@@ -997,7 +1183,7 @@ async function pullOllamaModel(model) {
         }
       }
     }
-    broadcast({ phase: "pull", model: name, status: "success", percent: 100 });
+    broadcast$1({ phase: "pull", model: name, status: "success", percent: 100 });
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -2026,6 +2212,149 @@ function registerCaptureIpc() {
     }
   });
 }
+const REPO = "slipptech-tech/Chelp-AI-Website";
+const RELEASES_API = `https://api.github.com/repos/${REPO}/releases/latest`;
+let cached = null;
+function broadcast(channel, payload) {
+  for (const win of electron.BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send(channel, payload);
+  }
+}
+function versionParts(value) {
+  return value.replace(/^v/i, "").split(/[.+-]/).slice(0, 3).map((part) => Number.parseInt(part, 10) || 0);
+}
+function isNewer(candidate, current) {
+  const next = versionParts(candidate);
+  const now = versionParts(current);
+  for (let index = 0; index < 3; index += 1) {
+    if ((next[index] ?? 0) > (now[index] ?? 0)) return true;
+    if ((next[index] ?? 0) < (now[index] ?? 0)) return false;
+  }
+  return false;
+}
+function pickInstaller(assets) {
+  return assets.find((asset) => /\.exe$/i.test(asset.name) && /setup|installer/i.test(asset.name)) ?? null;
+}
+function publicInfo(info) {
+  return {
+    current: info.current,
+    version: info.version,
+    available: info.available,
+    name: info.name,
+    size: info.size,
+    error: info.error
+  };
+}
+async function checkForUpdates() {
+  const current = electron.app.getVersion();
+  try {
+    const response = await fetch(RELEASES_API, {
+      headers: { Accept: "application/vnd.github+json" },
+      signal: AbortSignal.timeout(9e3)
+    });
+    if (!response.ok) throw new Error(`GitHub ${response.status}`);
+    const release = await response.json();
+    const tag = (release.tag_name ?? "").replace(/^v/i, "");
+    const asset = pickInstaller(release.assets ?? []);
+    cached = {
+      current,
+      version: tag || current,
+      available: Boolean(tag && asset && isNewer(tag, current)),
+      name: asset?.name,
+      size: asset?.size,
+      url: asset?.browser_download_url,
+      digest: asset?.digest ?? null
+    };
+    const info = publicInfo(cached);
+    if (info.available) broadcast("update:available", info);
+    return info;
+  } catch (error) {
+    return {
+      current,
+      version: current,
+      available: false,
+      error: error instanceof Error ? error.message : "network"
+    };
+  }
+}
+async function downloadUpdate() {
+  if (!cached?.available || !cached.url) return { ok: false, error: "no_update" };
+  const update = cached;
+  const url = cached.url;
+  const dir = path.join(electron.app.getPath("userData"), "updates");
+  const file = path.join(dir, update.name ?? `Chelp-AI-Setup-${update.version}.exe`);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    if (fs.existsSync(file) && (!update.size || fs.statSync(file).size === update.size)) {
+      update.file = file;
+      broadcast("update:ready", { version: update.version });
+      return { ok: true };
+    }
+    if (fs.existsSync(file)) fs.rmSync(file, { force: true });
+    const response = await fetch(url, {
+      redirect: "follow",
+      signal: AbortSignal.timeout(6e5)
+    });
+    if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+    const total = Number(response.headers.get("content-length")) || update.size || 0;
+    const hash = node_crypto.createHash("sha256");
+    let received = 0;
+    let lastReport = 0;
+    const meter = new node_stream.Transform({
+      transform(chunk, _encoding, callback) {
+        hash.update(chunk);
+        received += chunk.length;
+        const now = Date.now();
+        if (now - lastReport > 150 || received === total) {
+          lastReport = now;
+          const progress = {
+            version: update.version,
+            received,
+            total,
+            percent: total ? Math.min(100, Math.round(received / total * 100)) : 0
+          };
+          broadcast("update:progress", progress);
+        }
+        callback(null, chunk);
+      }
+    });
+    await promises.pipeline(node_stream.Readable.fromWeb(response.body), meter, fs.createWriteStream(file));
+    const size = fs.statSync(file).size;
+    if (total && size !== total) throw new Error("download_incomplete");
+    if (update.digest?.startsWith("sha256:")) {
+      const digest = hash.digest("hex");
+      if (digest !== update.digest.slice(7)) throw new Error("checksum_mismatch");
+    }
+    update.file = file;
+    broadcast("update:ready", { version: update.version });
+    return { ok: true };
+  } catch (error) {
+    try {
+      fs.rmSync(file, { force: true });
+    } catch {
+    }
+    const message = error instanceof Error ? error.message : "download_failed";
+    broadcast("update:error", { message });
+    return { ok: false, error: message };
+  }
+}
+function installUpdate() {
+  if (!cached?.available) return { ok: false, error: "no_update" };
+  if (!cached.file || !fs.existsSync(cached.file)) return { ok: false, error: "not_downloaded" };
+  const installDir = process.env.PORTABLE_EXECUTABLE_DIR?.trim() || path.dirname(process.execPath);
+  try {
+    const child2 = node_child_process.spawn(cached.file, ["--updated", "/S", "--force-run", `/D=${installDir}`], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true
+    });
+    child2.unref();
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "install_failed" };
+  }
+  setTimeout(() => electron.app.quit(), 800);
+  return { ok: true };
+}
 function parentOf(event) {
   return electron.BrowserWindow.fromWebContents(event.sender);
 }
@@ -2054,6 +2383,37 @@ function registerIpc() {
     return electron.BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false;
   });
   electron.ipcMain.handle("app:version", () => electron.app.getVersion());
+  electron.ipcMain.handle("storage:info", () => {
+    const stats = getStore().photosStats();
+    return {
+      dataPath: electron.app.getPath("userData"),
+      photosPath: stats.path,
+      photos: stats.files,
+      photoBytes: stats.bytes
+    };
+  });
+  electron.ipcMain.on("storage:open-data", () => {
+    void electron.shell.openPath(electron.app.getPath("userData"));
+  });
+  electron.ipcMain.on("storage:open-photos", () => {
+    void electron.shell.openPath(getStore().attachmentsPath);
+  });
+  electron.ipcMain.handle("storage:clear-photos", () => {
+    const freed = getStore().clearPhotos();
+    const stats = getStore().photosStats();
+    return {
+      freed,
+      info: {
+        dataPath: electron.app.getPath("userData"),
+        photosPath: stats.path,
+        photos: stats.files,
+        photoBytes: stats.bytes
+      }
+    };
+  });
+  electron.ipcMain.handle("update:check", () => checkForUpdates());
+  electron.ipcMain.handle("update:download", () => downloadUpdate());
+  electron.ipcMain.handle("update:install", () => installUpdate());
   electron.ipcMain.on("app:open-external", (_event, url) => {
     if (/^https?:\/\//i.test(url)) void electron.shell.openExternal(url);
   });
@@ -2135,6 +2495,7 @@ function registerIpc() {
     else send();
   });
 }
+electron.app.setPath("userData", prepareDataDir());
 electron.protocol.registerSchemesAsPrivileged([
   {
     scheme: "chelp",
@@ -2171,7 +2532,7 @@ if (!gotLock) {
     const applyLogin = (enabled) => {
       if (!electron.app.isPackaged) return;
       try {
-        electron.app.setLoginItemSettings({ openAtLogin: enabled, path: process.execPath });
+        electron.app.setLoginItemSettings({ openAtLogin: enabled, path: process.execPath, args: ["--startup"] });
       } catch {
       }
     };

@@ -17,7 +17,11 @@ import type {
   SavedAnswer,
   SendChatPayload,
   Settings,
-  TestResult
+  StorageInfo,
+  TestResult,
+  UpdateInfo,
+  UpdateProgress,
+  UpdateResult
 } from '@shared/types'
 
 function subscribe<T>(channel: string, callback: (payload: T) => void): () => void {
@@ -53,6 +57,22 @@ const api = {
   },
   clipboard: {
     write: (text: string): void => ipcRenderer.send('app:copy', text)
+  },
+  storage: {
+    info: (): Promise<StorageInfo> => ipcRenderer.invoke('storage:info'),
+    openDataFolder: (): void => ipcRenderer.send('storage:open-data'),
+    openPhotos: (): void => ipcRenderer.send('storage:open-photos'),
+    clearPhotos: (): Promise<{ freed: number; info: StorageInfo }> =>
+      ipcRenderer.invoke('storage:clear-photos')
+  },
+  update: {
+    check: (): Promise<UpdateInfo> => ipcRenderer.invoke('update:check'),
+    download: (): Promise<UpdateResult> => ipcRenderer.invoke('update:download'),
+    install: (): Promise<UpdateResult> => ipcRenderer.invoke('update:install'),
+    onAvailable: (cb: (info: UpdateInfo) => void) => subscribe('update:available', cb),
+    onProgress: (cb: (progress: UpdateProgress) => void) => subscribe('update:progress', cb),
+    onReady: (cb: (info: { version: string }) => void) => subscribe('update:ready', cb),
+    onError: (cb: (info: { message: string }) => void) => subscribe('update:error', cb)
   },
   providers: {
     test: (provider: Provider): Promise<TestResult> => ipcRenderer.invoke('providers:test', provider),

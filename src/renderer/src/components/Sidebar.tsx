@@ -1,4 +1,5 @@
 import {
+  ArrowDownToLine,
   Bookmark,
   Cpu,
   History,
@@ -7,6 +8,7 @@ import {
   MessagesSquare,
   MonitorUp,
   Settings2,
+  X,
   type LucideIcon
 } from 'lucide-react'
 import { isProviderReady } from '@shared/providers'
@@ -26,6 +28,22 @@ export function Sidebar() {
   const settings = useApp((state) => state.settings)
   const version = useApp((state) => state.version)
   const toast = useApp((state) => state.toast)
+  const update = useApp((state) => state.update)
+  const downloadUpdate = useApp((state) => state.downloadUpdate)
+  const installUpdate = useApp((state) => state.installUpdate)
+  const dismissUpdate = useApp((state) => state.dismissUpdate)
+
+  const showUpdate = Boolean(update.info?.available) && !update.dismissed
+  const updatePercent = update.progress?.percent ?? 0
+  const updateMessage = update.error
+    ? t('sidebar.updateFailed')
+    : update.installing
+      ? t('sidebar.updateInstalling')
+      : update.ready
+        ? t('sidebar.updateReady')
+        : update.downloading
+          ? t('sidebar.updateDownloading', { percent: updatePercent })
+          : t('sidebar.updateText', { version: update.info?.version ?? '' })
 
   const provider =
     settings.providers.find((item) => item.id === settings.activeProviderId) ??
@@ -101,6 +119,40 @@ export function Sidebar() {
             {ready ? t('nav.apiReady') : t('nav.apiMissing')}
           </span>
         </button>
+
+        {showUpdate ? (
+          <div className="update-card">
+            <div className="update-card-head">
+              <span className="update-card-icon">
+                <ArrowDownToLine size={12} />
+              </span>
+              <strong>{t('sidebar.updateTitle')}</strong>
+              <button
+                type="button"
+                className="update-card-close"
+                onClick={dismissUpdate}
+                aria-label={t('common.later')}
+                title={t('common.later')}
+              >
+                <X size={11} />
+              </button>
+            </div>
+            <span className={`update-card-text ${update.error ? 'is-error' : ''}`}>{updateMessage}</span>
+            {update.downloading || update.installing ? (
+              <div className="update-progress">
+                <span style={{ width: `${update.installing ? 100 : updatePercent}%` }} />
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="update-card-btn"
+                onClick={() => void (update.ready ? installUpdate() : downloadUpdate())}
+              >
+                {update.ready ? t('sidebar.updateInstall') : t('sidebar.updateDownload')}
+              </button>
+            )}
+          </div>
+        ) : null}
 
         <div className="sidebar-meta">
           <span>Chelp AI</span>

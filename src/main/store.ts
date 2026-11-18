@@ -19,6 +19,7 @@ const DEFAULT_SETTINGS: Settings = {
   language: 'en',
   accent: 'violet',
   startAtLogin: false,
+  startMinimized: false,
   closeToTray: true,
   notifyOnDone: true,
   streaming: true,
@@ -26,6 +27,9 @@ const DEFAULT_SETTINGS: Settings = {
   saveHistory: true,
   confirmBeforeSend: true,
   captureQuality: 'high',
+  enterToSend: true,
+  reduceMotion: false,
+  checkUpdates: true,
   hotkeysEnabled: true,
   hotkeys: { float: 'Ctrl+Shift+Space', capture: 'Ctrl+Shift+X' },
   providers: DEFAULT_PROVIDERS,
@@ -97,7 +101,7 @@ export class Store {
   private settingsFile: string
   private conversationsFile: string
   private savedFile: string
-  private attachmentsDir: string
+  private photosDir: string
   private writeTimer: NodeJS.Timeout | null = null
 
   constructor() {
@@ -106,8 +110,10 @@ export class Store {
     this.settingsFile = path.join(dir, 'settings.json')
     this.conversationsFile = path.join(dir, 'conversations.json')
     this.savedFile = path.join(dir, 'saved.json')
-    this.attachmentsDir = path.join(dir, 'attachments')
-    fs.mkdirSync(this.attachmentsDir, { recursive: true })
+    this.photosDir = path.join(dir, 'photos-cache')
+    const legacyPhotos = path.join(dir, 'attachments')
+    fs.mkdirSync(this.photosDir, { recursive: true })
+    const movedPhotos = this.moveLegacyPhotos(legacyPhotos)
 
     const raw = readJson<Partial<Settings>>(this.settingsFile, {})
     const storedProviders = Array.isArray(raw.providers) && raw.providers.length > 0 ? raw.providers : DEFAULT_PROVIDERS
@@ -127,12 +133,113 @@ export class Store {
 
     const conversations = readJson<Conversation[]>(this.conversationsFile, [])
     this.conversations = Array.isArray(conversations) ? conversations : []
+    if (movedPhotos) this.remapAttachments(legacyPhotos)
+    if (movedPhotos || this.relocateAttachments()) {
+      writeJson(this.conversationsFile, this.conversations)
+    }
     const saved = readJson<SavedAnswer[]>(this.savedFile, [])
     this.saved = Array.isArray(saved) ? saved : []
   }
 
   get attachmentsPath(): string {
-    return this.attachmentsDir
+    return this.photosDir
+  }
+
+  private moveLegacyPhotos(legacyDir: string): boolean {
+    if (!fs.existsSync(legacyDir)) return false
+    let moved = false
+    try {
+      for (const entry of fs.readdirSync(legacyDir, { withFileTypes: true })) {
+        if (!entry.isFile()) continue
+        const from = path.join(legacyDir, entry.name)
+        const to = path.join(this.photosDir, entry.name)
+        try {
+          if (!fs.existsSync(to)) fs.renameSync(from, to)
+          else fs.rmSync(from, { force: true })
+          moved = true
+        } catch {
+          /* leave the file; it is still reachable at the old path */
+        }
+      }
+      fs.rmdirSync(legacyDir)
+    } catch {
+      /* folder is not empty or busy */
+    }
+    return moved
+  }
+
+  private remapAttachments(legacyDir: string): void {
+    const prefix = legacyDir + path.sep
+    for (const conversation of this.conversations) {
+      for (const message of conversation.messages) {
+        for (const attachment of message.attachments ?? []) {
+          if (attachment.path.startsWith(prefix)) {
+            attachment.path = path.join(this.photosDir, path.basename(attachment.path))
+          }
+        }
+      }
+    }
+  }
+
+  /** Keeps history working after the Chelp AI folder is moved to another location. */
+  private relocateAttachments(): boolean {
+    let changed = false
+    for (const conversation of this.conversations) {
+      for (const message of conversation.messages) {
+        for (const attachment of message.attachments ?? []) {
+          const target = path.join(this.photosDir, path.basename(attachment.path ?? ''))
+          if (attachment.path !== target && !fs.existsSync(attachment.path) && fs.existsSync(target)) {
+            attachment.path = target
+            changed = true
+          }
+        }
+      }
+    }
+    return changed
+  }
+
+  private photoPath(value: string): string {
+    if (value && fs.existsSync(value)) return value
+    const name = path.basename(value ?? '')
+    return name ? path.join(this.photosDir, name) : value
+  }
+
+  photosStats(): { path: string; files: number; bytes: number } {
+    let files = 0
+    let bytes = 0
+    try {
+      for (const entry of fs.readdirSync(this.photosDir, { withFileTypes: true })) {
+        if (!entry.isFile()) continue
+        files += 1
+        try {
+          bytes += fs.statSync(path.join(this.photosDir, entry.name)).size
+        } catch {
+          /* file vanished */
+        }
+      }
+    } catch {
+      /* folder missing */
+    }
+    return { path: this.photosDir, files, bytes }
+  }
+
+  clearPhotos(): number {
+    let freed = 0
+    try {
+      for (const entry of fs.readdirSync(this.photosDir, { withFileTypes: true })) {
+        if (!entry.isFile()) continue
+        const file = path.join(this.photosDir, entry.name)
+        try {
+          freed += fs.statSync(file).size
+          fs.rmSync(file, { force: true })
+        } catch {
+          /* ignore locked file */
+        }
+      }
+    } catch {
+      /* folder missing */
+    }
+    return freed
   }
 
   updateSettings(patch: Partial<Settings>): Settings {
@@ -201,13 +308,7 @@ export class Store {
 
   clearConversations(): void {
     for (const conversation of this.conversations) this.deleteAttachments(conversation)
-    try {
-      for (const file of fs.readdirSync(this.attachmentsDir)) {
-        fs.rmSync(path.join(this.attachmentsDir, file), { force: true })
-      }
-    } catch {
-      /* ignore */
-    }
+    this.clearPhotos()
     this.conversations = []
     this.saved = []
     writeJson(this.savedFile, this.saved)
@@ -220,7 +321,7 @@ export class Store {
     for (const message of conversation.messages) {
       for (const attachment of message.attachments ?? []) {
         try {
-          fs.rmSync(attachment.path, { force: true })
+          fs.rmSync(this.photoPath(attachment.path), { force: true })
         } catch {
           /* ignore */
         }
@@ -269,7 +370,7 @@ export class Store {
     if (!match) throw new Error('Unsupported image data')
     const ext = match[1].toLowerCase() === 'jpeg' ? 'jpg' : match[1].toLowerCase()
     const id = randomUUID()
-    const file = path.join(this.attachmentsDir, `${id}.${ext}`)
+    const file = path.join(this.photosDir, `${id}.${ext}`)
     fs.writeFileSync(file, Buffer.from(match[2], 'base64'))
     const size = nativeImage.createFromPath(file).getSize()
     return {
@@ -284,7 +385,7 @@ export class Store {
 
   readAttachmentDataUrl(attachment: Attachment): string | null {
     try {
-      const file = attachment.path
+      const file = this.photoPath(attachment.path)
       const ext = path.extname(file).slice(1).replace('jpg', 'jpeg')
       const data = fs.readFileSync(file).toString('base64')
       return `data:image/${ext};base64,${data}`
@@ -391,7 +492,8 @@ export class Store {
       for (const message of conversation.messages) {
         for (const attachment of message.attachments ?? []) {
           try {
-            fs.copyFileSync(attachment.path, path.join(path.dirname(result.filePath), path.basename(attachment.path)))
+            const source = this.photoPath(attachment.path)
+            fs.copyFileSync(source, path.join(path.dirname(result.filePath), path.basename(source)))
           } catch {
             /* ignore missing attachment */
           }

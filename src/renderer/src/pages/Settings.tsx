@@ -1,9 +1,16 @@
 import { useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import {
+  ArrowDownToLine,
+  CheckCircle2,
+  CircleAlert,
+  FolderOpen,
+  HardDrive,
+  Images,
   Info,
   Keyboard,
   Lock,
   Palette,
+  RefreshCw,
   RotateCcw,
   Shield,
   SlidersHorizontal,
@@ -12,7 +19,7 @@ import {
 import type { Accent, Hotkeys } from '@shared/types'
 import { useApp } from '../store'
 import { useSettings, useT } from '../hooks'
-import { formatKey } from '../lib/format'
+import { formatBytes, formatKey } from '../lib/format'
 import { Logo } from '../components/Logo'
 import { Button, ConfirmDialog, PageHeader, Segmented, Switch } from '../components/ui'
 
@@ -127,7 +134,14 @@ export function SettingsPage() {
   const updateSettings = useApp((state) => state.updateSettings)
   const clearHistory = useApp((state) => state.clearHistory)
   const toast = useApp((state) => state.toast)
+  const storage = useApp((state) => state.storage)
+  const update = useApp((state) => state.update)
+  const clearPhotos = useApp((state) => state.clearPhotos)
+  const checkUpdates = useApp((state) => state.checkUpdates)
+  const downloadUpdate = useApp((state) => state.downloadUpdate)
+  const installUpdate = useApp((state) => state.installUpdate)
   const [clearOpen, setClearOpen] = useState(false)
+  const [photosOpen, setPhotosOpen] = useState(false)
 
   const setHotkey = (key: keyof Hotkeys, accelerator: string): void => {
     const other = key === 'float' ? settings.hotkeys.capture : settings.hotkeys.float
@@ -143,6 +157,36 @@ export function SettingsPage() {
     setClearOpen(false)
     toast(t('settings.cleared'), 'success')
   }
+
+  const confirmClearPhotos = async (): Promise<void> => {
+    await clearPhotos()
+    setPhotosOpen(false)
+  }
+
+  const photosHint = storage
+    ? storage.photos > 0
+      ? t('settings.photosCacheHint', {
+          files: storage.photos,
+          size: formatBytes(storage.photoBytes, settings.language)
+        })
+      : t('settings.photosCacheEmpty')
+    : '—'
+
+  const updateStatus = update.checking
+    ? t('settings.checking')
+    : update.installing
+      ? t('settings.updateInstalling')
+      : update.downloading
+        ? t('settings.updateDownloading', { percent: update.progress?.percent ?? 0 })
+        : update.ready
+          ? t('settings.updateReady', { version: update.info?.version ?? '' })
+          : update.info?.available
+            ? t('settings.updateVersion', { version: update.info.version })
+            : update.error
+              ? t('settings.updateCheckFailed')
+              : update.info
+                ? t('settings.upToDate')
+                : t('settings.updateNote')
 
   return (
     <div className="page page-scroll">
@@ -247,6 +291,49 @@ export function SettingsPage() {
           </div>
         </section>
 
+        <section className="settings-card">
+          <div className="settings-card-head">
+            <span className="settings-icon">
+              <HardDrive size={16} />
+            </span>
+            <h3>{t('settings.storage')}</h3>
+          </div>
+          <SettingRow title={t('settings.dataFolder')} hint={t('settings.dataFolderHint')}>
+            <Button
+              size="sm"
+              icon={<FolderOpen size={12} />}
+              onClick={() => window.chelp.storage.openDataFolder()}
+            >
+              {t('settings.openFolder')}
+            </Button>
+          </SettingRow>
+          {storage ? (
+            <div className="path-line" title={storage.dataPath}>
+              <code>{storage.dataPath}</code>
+            </div>
+          ) : null}
+          <SettingRow title={t('settings.photosCache')} hint={photosHint}>
+            <div className="settings-button-row">
+              <Button
+                size="sm"
+                icon={<Images size={12} />}
+                onClick={() => window.chelp.storage.openPhotos()}
+              >
+                {t('settings.openFolder')}
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                icon={<Trash2 size={12} />}
+                disabled={!storage?.photos}
+                onClick={() => setPhotosOpen(true)}
+              >
+                {t('settings.clearPhotos')}
+              </Button>
+            </div>
+          </SettingRow>
+        </section>
+
         <section className="settings-card about-card">
           <div className="settings-card-head">
             <span className="settings-icon">
@@ -307,6 +394,12 @@ export function SettingsPage() {
               onChange={(startAtLogin) => void updateSettings({ startAtLogin })}
             />
           </SettingRow>
+          <SettingRow title={t('settings.startMinimized')} hint={t('settings.startMinimizedHint')}>
+            <Switch
+              checked={settings.startMinimized}
+              onChange={(startMinimized) => void updateSettings({ startMinimized })}
+            />
+          </SettingRow>
           <SettingRow title={t('settings.closeToTray')} hint={t('settings.closeToTrayHint')}>
             <Switch
               checked={settings.closeToTray}
@@ -334,6 +427,80 @@ export function SettingsPage() {
               onChange={(autoSwitchProvider) => void updateSettings({ autoSwitchProvider })}
             />
           </SettingRow>
+          <SettingRow title={t('settings.enterToSend')} hint={t('settings.enterToSendHint')}>
+            <Switch
+              checked={settings.enterToSend}
+              onChange={(enterToSend) => void updateSettings({ enterToSend })}
+            />
+          </SettingRow>
+          <SettingRow title={t('settings.reduceMotion')} hint={t('settings.reduceMotionHint')}>
+            <Switch
+              checked={settings.reduceMotion}
+              onChange={(reduceMotion) => void updateSettings({ reduceMotion })}
+            />
+          </SettingRow>
+        </section>
+
+        <section className="settings-card">
+          <div className="settings-card-head">
+            <span className="settings-icon">
+              <ArrowDownToLine size={16} />
+            </span>
+            <h3>{t('settings.updates')}</h3>
+          </div>
+          <SettingRow title={t('settings.autoUpdate')} hint={t('settings.autoUpdateHint')}>
+            <Switch
+              checked={settings.checkUpdates}
+              onChange={(checkUpdates) => void updateSettings({ checkUpdates })}
+            />
+          </SettingRow>
+          <div className="update-status">
+            <div className="update-status-main">
+              {update.ready || (update.info && !update.info.available && !update.error) ? (
+                <CheckCircle2 size={15} className="update-status-icon is-ok" />
+              ) : update.info?.available || update.downloading || update.installing ? (
+                <ArrowDownToLine size={15} className="update-status-icon is-new" />
+              ) : update.error ? (
+                <CircleAlert size={15} className="update-status-icon is-bad" />
+              ) : (
+                <RefreshCw size={15} className={`update-status-icon ${update.checking ? 'is-spin' : ''}`} />
+              )}
+              <div className="update-status-text">
+                <strong>
+                  {t('settings.currentVersion')} {version || '1.0.0'}
+                </strong>
+                <span>{updateStatus}</span>
+              </div>
+            </div>
+            {update.downloading ? (
+              <div className="update-progress is-inline">
+                <span style={{ width: `${update.progress?.percent ?? 0}%` }} />
+              </div>
+            ) : update.info?.available ? (
+              <Button
+                variant="primary"
+                size="sm"
+                icon={update.ready ? <RefreshCw size={12} /> : <ArrowDownToLine size={12} />}
+                disabled={update.installing}
+                onClick={() => void (update.ready ? installUpdate() : downloadUpdate())}
+              >
+                {update.installing
+                  ? t('settings.updateInstalling')
+                  : update.ready
+                    ? t('settings.updateInstall')
+                    : t('settings.updateDownload')}
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                icon={<RefreshCw size={12} />}
+                disabled={update.checking}
+                onClick={() => void checkUpdates(true)}
+              >
+                {update.checking ? t('settings.checking') : t('settings.checkNow')}
+              </Button>
+            )}
+          </div>
         </section>
 
         <section className="settings-card">
@@ -379,6 +546,18 @@ export function SettingsPage() {
         </section>
         </div>
       </div>
+
+      {photosOpen ? (
+        <ConfirmDialog
+          title={t('settings.clearPhotosTitle')}
+          text={t('settings.clearPhotosText')}
+          confirmLabel={t('settings.clearPhotos')}
+          cancelLabel={t('common.cancel')}
+          danger
+          onConfirm={() => void confirmClearPhotos()}
+          onClose={() => setPhotosOpen(false)}
+        />
+      ) : null}
 
       {clearOpen ? (
         <ConfirmDialog

@@ -5,6 +5,7 @@ import { abortRequest, listLocalModels, regenerate, sendChat, testProvider } fro
 import { connectOpenRouter } from './openrouter'
 import { installOllama, ollamaStatus, pullOllamaModel, startOllama } from './ollama'
 import { captureWindow, listScreens, listWindows, selectRegion } from './capture'
+import { checkForUpdates, downloadUpdate, installUpdate } from './update'
 import {
   focusMain,
   getFloatWindow,
@@ -49,6 +50,42 @@ export function registerIpc(): void {
   })
 
   ipcMain.handle('app:version', () => app.getVersion())
+
+  ipcMain.handle('storage:info', () => {
+    const stats = getStore().photosStats()
+    return {
+      dataPath: app.getPath('userData'),
+      photosPath: stats.path,
+      photos: stats.files,
+      photoBytes: stats.bytes
+    }
+  })
+
+  ipcMain.on('storage:open-data', () => {
+    void shell.openPath(app.getPath('userData'))
+  })
+
+  ipcMain.on('storage:open-photos', () => {
+    void shell.openPath(getStore().attachmentsPath)
+  })
+
+  ipcMain.handle('storage:clear-photos', () => {
+    const freed = getStore().clearPhotos()
+    const stats = getStore().photosStats()
+    return {
+      freed,
+      info: {
+        dataPath: app.getPath('userData'),
+        photosPath: stats.path,
+        photos: stats.files,
+        photoBytes: stats.bytes
+      }
+    }
+  })
+
+  ipcMain.handle('update:check', () => checkForUpdates())
+  ipcMain.handle('update:download', () => downloadUpdate())
+  ipcMain.handle('update:install', () => installUpdate())
 
   ipcMain.on('app:open-external', (_event, url: string) => {
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
