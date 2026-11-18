@@ -9,9 +9,6 @@
 
   <sub>Windows 10/11 · Electron · React · TypeScript · <a href="https://chelp.app">chelp.app</a></sub>
 
-  English · [Русский](README.ru.md)
-</div>
-
 Chelp AI lives in the system tray, opens with a global hotkey, and stays out of your way until you need it. When something breaks on screen, capture it once — a display, a window, or a drawn region — and Chelp tells you what you are looking at: the problem, the likely cause, and the fix, in plain language.
 
 It works with any OpenAI-compatible API. Bring DeepSeek, OpenRouter, OpenAI, or Gemini, or keep everything on your machine with local models through Ollama or LM Studio.
