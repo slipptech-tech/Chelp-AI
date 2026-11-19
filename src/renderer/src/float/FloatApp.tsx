@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react'
 import {
   ArrowUp,
   ChevronDown,
@@ -22,6 +22,7 @@ import type {
 import { isProviderReady, visionProviderFor } from '@shared/providers'
 import { translate } from '../i18n'
 import { formatKey } from '../lib/format'
+import { clipboardImage } from '../lib/clipboard'
 import { Logo } from '../components/Logo'
 import { Markdown } from '../components/Markdown'
 import { ThinkingText } from '../components/Thinking'
@@ -223,6 +224,21 @@ export function FloatApp() {
       requestAnimationFrame(() => textareaRef.current?.focus())
     } finally {
       setCapturing(false)
+    }
+  }
+
+  const pasteImage = async (event: ClipboardEvent<HTMLTextAreaElement>): Promise<void> => {
+    try {
+      const dataUrl = await clipboardImage(event)
+      if (!dataUrl) return
+      const attachment = await window.chelp.capture.saveImage(
+        dataUrl,
+        t('assistant.pastedImage')
+      )
+      setAttachments((current) => [...current, attachment])
+      requestAnimationFrame(() => textareaRef.current?.focus())
+    } catch {
+      setError({ code: 'paste_failed' })
     }
   }
 
@@ -432,6 +448,7 @@ export function FloatApp() {
             rows={1}
             placeholder={t('float.placeholder')}
             onChange={(event) => setText(event.target.value)}
+            onPaste={(event) => void pasteImage(event)}
             onKeyDown={(event) => {
               if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
               const chord = event.ctrlKey || event.metaKey

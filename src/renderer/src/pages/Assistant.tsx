@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react'
 import {
   ArrowUp,
   BookmarkPlus,
@@ -24,6 +24,7 @@ import { isProviderReady, visionProviderFor } from '@shared/providers'
 import { useApp } from '../store'
 import { useSettings, useT } from '../hooks'
 import { formatClock, groupConversations, relativeTime } from '../lib/format'
+import { clipboardImage } from '../lib/clipboard'
 import { Logo } from '../components/Logo'
 import { Markdown } from '../components/Markdown'
 import { AgentCard } from '../components/AgentCard'
@@ -136,6 +137,21 @@ export function AssistantPage() {
       focusComposer()
     } finally {
       setCapturing(false)
+    }
+  }
+
+  const pasteImage = async (event: ClipboardEvent<HTMLTextAreaElement>): Promise<void> => {
+    try {
+      const dataUrl = await clipboardImage(event)
+      if (!dataUrl) return
+      const attachment = await window.chelp.capture.saveImage(
+        dataUrl,
+        t('assistant.pastedImage')
+      )
+      setAttachments((current) => [...current, attachment])
+      focusComposer()
+    } catch {
+      toast(t('toast.pasteFailed'), 'error')
     }
   }
 
@@ -432,6 +448,7 @@ export function AssistantPage() {
               rows={1}
               placeholder={t('assistant.composer.placeholder')}
               onChange={(event) => setText(event.target.value)}
+              onPaste={(event) => void pasteImage(event)}
               onKeyDown={(event) => {
                 if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
                 const chord = event.ctrlKey || event.metaKey

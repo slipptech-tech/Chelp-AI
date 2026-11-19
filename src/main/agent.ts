@@ -35,6 +35,7 @@ interface Prepared {
   goal: string
   url?: string
   app?: string
+  launch?: string
   provider: Provider | null
   providerLabel: string
   needsScreenshot: boolean
@@ -93,24 +94,119 @@ function appEntry(id: string | undefined): AppTarget | null {
   return APP_TARGETS[id] ?? null
 }
 
-function launchDetached(target: string, args: string[] = []): Promise<void> {
+const WINDOWS_ROOT = process.env.SystemRoot ?? 'C:\\Windows'
+
+const APP_NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N} ._+()'-]{0,79}$/u
+
+const SHELL_APPS = new Set(['powershell', 'cmd', 'terminal'])
+
+const START_MENU_DIRS = [
+  path.join(
+    process.env.ProgramData ?? 'C:\\ProgramData',
+    'Microsoft',
+    'Windows',
+    'Start Menu',
+    'Programs'
+  ),
+  path.join(
+    process.env.APPDATA ?? '',
+    'Microsoft',
+    'Windows',
+    'Start Menu',
+    'Programs'
+  )
+].filter((dir) => dir && fs.existsSync(dir))
+
+const TRANSLIT: Record<string, string> = {
+  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i',
+  й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't',
+  у: 'u', ф: 'f', х: 'kh', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'sch', ъ: '', ы: 'y',
+  ь: '', э: 'e', ю: 'yu', я: 'ya'
+}
+
+function labelTokens(value: string): string[] {
+  return value
+    .toLowerCase()
+    .replace(/[а-яё]/g, (char) => TRANSLIT[char] ?? char)
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean)
+}
+
+function matchScore(haystack: string[], needle: string[]): number {
+  if (needle.length === 0) return 0
+  let matched = 0
+  for (const token of needle) {
+    if (haystack.includes(token)) matched += 1
+  }
+  return matched / needle.length
+}
+
+const APP_ALIASES: Record<string, string> = {
+  дискорд: 'Discord',
+  телега: 'Telegram',
+  телеграм: 'Telegram',
+  хром: 'Google Chrome',
+  стим: 'Steam',
+  спотифай: 'Spotify',
+  скайп: 'Skype',
+  ватсап: 'WhatsApp',
+  вотсап: 'WhatsApp',
+  тимс: 'Microsoft Teams',
+  зум: 'Zoom',
+  обсидиан: 'Obsidian',
+  нотион: 'Notion',
+  фотошоп: 'Photoshop',
+  эксель: 'Excel',
+  ворд: 'Word',
+  реестр: 'regedit',
+  'редактор реестра': 'regedit',
+  registry: 'regedit',
+  'registry editor': 'regedit',
+  'диспетчер устройств': 'devmgmt.msc',
+  'device manager': 'devmgmt.msc',
+  'сведения о системе': 'msinfo32.exe',
+  'system information': 'msinfo32.exe',
+  'удалённый рабочий стол': 'mstsc.exe',
+  'remote desktop': 'mstsc.exe'
+}
+
+function resolveAlias(name: string): string {
+  return APP_ALIASES[name.trim().toLowerCase()] ?? name
+}
+
+function sanitizeAppName(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const name = raw.trim().replace(/\s+/g, ' ').slice(0, 80)
+  if (name.length < 2 || !APP_NAME_PATTERN.test(name)) return null
+  return name
+}
+
+function systemExe(name: string): string {
+  return path.join(WINDOWS_ROOT, 'System32', name)
+}
+
+function resolveExecutable(target: string): string {
+  if (path.isAbsolute(target) || target.includes(path.sep)) return target
+  for (const dir of [path.join(WINDOWS_ROOT, 'System32'), WINDOWS_ROOT]) {
+    const candidate = path.join(dir, target)
+    if (fs.existsSync(candidate)) return candidate
+  }
+  return target
+}
+
+function spawnDetached(target: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
-    const quoted = (value: string): string => `'${value.replace(/'/g, "''")}'`
-    const command = args.length
-      ? `Start-Process -FilePath ${quoted(target)} -ArgumentList ${args.map(quoted).join(',')}`
-      : `Start-Process -FilePath ${quoted(target)}`
     let child: ChildProcess
     try {
-      child = spawn(
-        psBinary(),
-        ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', command],
-        { windowsHide: true }
-      )
+      child = spawn(resolveExecutable(target), args, {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: false
+      })
     } catch {
       reject(new Error('spawn_failed'))
       return
     }
-    if (activeRun) activeRun.child = child
     const timer = setTimeout(() => {
       try {
         child.kill()
@@ -119,17 +215,248 @@ function launchDetached(target: string, args: string[] = []): Promise<void> {
       }
       reject(new Error('spawn_failed'))
     }, 12000)
-    child.on('error', () => {
+    child.once('spawn', () => {
+      clearTimeout(timer)
+      child.unref()
+      resolve()
+    })
+    child.once('error', () => {
       clearTimeout(timer)
       reject(new Error('spawn_failed'))
     })
-    child.on('close', (code) => {
-      clearTimeout(timer)
-      if (activeRun && activeRun.child === child) activeRun.child = null
-      if (code === 0) resolve()
-      else reject(new Error('spawn_failed'))
-    })
   })
+}
+
+async function launchDetached(target: string, args: string[] = []): Promise<void> {
+  const file = resolveExecutable(target)
+  if (path.isAbsolute(file) && fs.existsSync(file)) {
+    const error = await shell.openPath(file)
+    if (!error) return
+  }
+  await spawnDetached(file, args)
+}
+
+function execText(file: string, args: string[], timeout = 4000): Promise<string> {
+  return new Promise((resolve) => {
+    let output = ''
+    let done = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const finish = (): void => {
+      if (done) return
+      done = true
+      if (timer) clearTimeout(timer)
+      resolve(output)
+    }
+    let child: ChildProcess
+    try {
+      child = spawn(file, args, { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] })
+    } catch {
+      finish()
+      return
+    }
+    timer = setTimeout(() => {
+      try {
+        child.kill()
+      } catch {
+        /* ignore */
+      }
+      finish()
+    }, timeout)
+    child.stdout?.on('data', (chunk: Buffer) => {
+      output += chunk.toString('utf-8')
+    })
+    child.once('error', finish)
+    child.once('close', finish)
+  })
+}
+
+const LAUNCHABLE_FILES = /\.(exe|msc|cpl)$/i
+
+async function findInstalledExecutable(name: string): Promise<string | null> {
+  const bare = name.replace(/\.exe$/i, '')
+  const queries = /\.(msc|cpl)$/i.test(bare) ? [bare] : [`${bare}.exe`, bare]
+  for (const query of queries) {
+    const whereOut = await execText(systemExe('where.exe'), [query])
+    const whereHit = whereOut
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => LAUNCHABLE_FILES.test(line) && fs.existsSync(line))
+    if (whereHit) return whereHit
+  }
+  if (/\.(msc|cpl)$/i.test(bare)) return null
+  const keys = [
+    `HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${bare}.exe`,
+    `HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${bare}.exe`,
+    `HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\App Paths\\${bare}.exe`
+  ]
+  for (const key of keys) {
+    const out = await execText(systemExe('reg.exe'), ['query', key, '/ve'])
+    const line = out.split(/\r?\n/).find((row) => /REG_SZ/i.test(row))
+    const value = line?.split(/REG_SZ\s+/i)[1]?.trim().replace(/^"|"$/g, '')
+    if (value && fs.existsSync(value)) return value
+  }
+  return null
+}
+
+function findStartMenuShortcut(name: string): string | null {
+  const needle = labelTokens(name)
+  if (needle.length === 0) return null
+  const candidates: Array<{ path: string; score: number; exact: boolean; length: number }> = []
+  let visited = 0
+  const walk = (dir: string, depth: number): void => {
+    if (depth > 4 || visited > 4000) return
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      visited += 1
+      if (visited > 4000) return
+      const full = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        walk(full, depth + 1)
+        continue
+      }
+      if (!entry.name.toLowerCase().endsWith('.lnk')) continue
+      const base = labelTokens(entry.name.slice(0, -4))
+      if (base.length === 0) continue
+      const score = matchScore(base, needle)
+      if (score === 0 || (needle.length > 1 && score < 1)) continue
+      candidates.push({
+        path: full,
+        score,
+        exact: score === 1 && base.length === needle.length,
+        length: base.join('').length
+      })
+    }
+  }
+  for (const dir of START_MENU_DIRS) walk(dir, 0)
+  if (candidates.length === 0) return null
+  candidates.sort((a, b) => {
+    if (a.exact !== b.exact) return a.exact ? -1 : 1
+    if (b.score !== a.score) return b.score - a.score
+    return a.length - b.length
+  })
+  return candidates[0].path
+}
+
+function usableStartAppId(id: string): boolean {
+  if (!id) return false
+  if (/^https?:/i.test(id)) return false
+  if (/^[a-z]:\\/i.test(id) || /\.exe$/i.test(id)) return fs.existsSync(id)
+  return /^[\w.!-]+$/i.test(id)
+}
+
+async function findStartMenuApp(name: string): Promise<{ name: string; id: string } | null> {
+  const needle = labelTokens(name)
+  if (needle.length === 0) return null
+  const script =
+    "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-StartApps | ForEach-Object { $_.Name + [char]124 + $_.AppID }"
+  const out = await execText(
+    psBinary(),
+    ['-NoProfile', '-NonInteractive', '-Command', script],
+    8000
+  )
+  const candidates: Array<{ name: string; id: string; score: number; exact: boolean; length: number }> = []
+  for (const line of out.split(/\r?\n/)) {
+    const text = line.trim()
+    const at = text.lastIndexOf('|')
+    if (at <= 0) continue
+    const id = text.slice(at + 1)
+    if (!usableStartAppId(id)) continue
+    const appName = text.slice(0, at)
+    const base = labelTokens(appName)
+    const score = matchScore(base, needle)
+    if (score === 0 || (needle.length > 1 && score < 1)) continue
+    candidates.push({
+      name: appName,
+      id,
+      score,
+      exact: score === 1 && base.length === needle.length,
+      length: base.join('').length
+    })
+  }
+  if (candidates.length === 0) return null
+  candidates.sort((a, b) => {
+    if (a.exact !== b.exact) return a.exact ? -1 : 1
+    if (b.score !== a.score) return b.score - a.score
+    return a.length - b.length
+  })
+  return { name: candidates[0].name, id: candidates[0].id }
+}
+
+async function launchApp(raw: string): Promise<void> {
+  const clean = sanitizeAppName(raw)
+  if (!clean) throw new Error('blocked_app')
+  const name = resolveAlias(clean)
+  const exe = await findInstalledExecutable(name)
+  if (exe) {
+    if (/\.exe$/i.test(exe)) {
+      await launchDetached(exe)
+    } else {
+      const error = await shell.openPath(exe)
+      if (error) throw new Error('app_not_found')
+    }
+    return
+  }
+  const shortcut = findStartMenuShortcut(name)
+  if (shortcut) {
+    const error = await shell.openPath(shortcut)
+    if (!error) return
+  }
+  const startApp = await findStartMenuApp(name)
+  if (startApp) {
+    if (/^[a-z]:\\/i.test(startApp.id) || /\.exe$/i.test(startApp.id)) {
+      await launchDetached(startApp.id)
+    } else {
+      try {
+        await shell.openExternal(`shell:AppsFolder\\${startApp.id}`)
+      } catch {
+        throw new Error('app_not_found')
+      }
+    }
+    return
+  }
+  throw new Error('app_not_found')
+}
+
+async function isAppAvailable(raw: string): Promise<boolean> {
+  const name = resolveAlias(raw)
+  if (matchAgentApp(name)) return true
+  if (await findInstalledExecutable(name)) return true
+  if (findStartMenuShortcut(name)) return true
+  return Boolean(await findStartMenuApp(name))
+}
+
+function extractLaunchName(goal: string): string | null {
+  const match = goal
+    .trim()
+    .match(
+      /^(?:chelp[,\s]+|пожалуйста[,\s]+|плиз[,\s]+|please[,\s]+)?(?:открой|откройте|открыть|запусти|запустите|запустить|включи|включите|\bopen\b|\blaunch\b|\bstart\b|\brun\b)\s+(?:приложение\s+|прогу\s+|программу\s+|app\s+|the\s+)?(.+)$/iu
+    )
+  if (!match) return null
+  let rest = match[1].replace(/[.!?]+$/g, '').trim()
+  for (;;) {
+    const next = rest
+      .replace(/^(?:мне|для меня|на компьютере|на компе|пожалуйста|плиз|please)\s+/iu, '')
+      .replace(/\s+(?:пожалуйста|плиз|please)$/iu, '')
+      .trim()
+    if (next === rest) break
+    rest = next
+  }
+  const name = sanitizeAppName(rest)
+  return name ? resolveAlias(name) : null
+}
+
+function stripUnrequestedShells(actions: AgentAction[], goal: string): AgentAction[] {
+  const requested = matchAgentApp(goal)
+  if (requested && SHELL_APPS.has(requested)) return actions
+  const opensShell = actions.some(
+    (action) => action.kind === 'open_app' && action.app && SHELL_APPS.has(action.app)
+  )
+  return opensShell ? [{ kind: 'finish' }] : actions
 }
 
 const AGENT_PLAN_PROMPT = `You are the action planner of Chelp AI, a Windows desktop assistant.
@@ -147,7 +474,8 @@ Rules:
 - If the needed window or app is already open on screen, use it instead of launching another copy.
 - After an action that changes the screen (opening a window or menu, pressing keys), add a wait step of 600-1500 ms before interacting with the new state.
 - Keep one action per step and write "note" in the language of the user request, describing the action for the user without technical coordinates.
-- To launch an application use one open_app step with "app" set to one of: {{APPS}}. Do not simulate the Start menu with clicks or key presses for these apps.
+- To launch a program use one open_app step with "app" set to the program name as it appears in the Start menu or its exe name, for example "Telegram", "Chrome", "Discord", "regedit", "devmgmt.msc". Chelp launches it directly, so never open PowerShell, Command Prompt or Terminal to start another program and never simulate the Start menu.
+- Built-in targets Chelp knows: {{APPS}}. Only open a shell when the user explicitly asks for it or needs an interactive console.
 - The Win key is not available, so never plan press sequences that need it.
 - open_url accepts full http(s) links or official Windows Settings pages, for example ms-settings:windowsupdate, ms-settings:display, ms-settings:network, ms-settings:privacy, ms-settings:appsfeatures, ms-settings:sound, ms-settings:bluetooth, ms-settings:defaultapps.
 - For repair tasks, name the real cause in goal and notes and use built-in Windows tools; do not install unknown software.
@@ -468,8 +796,10 @@ function sanitizeSteps(raw: unknown): AgentAction[] {
       continue
     }
     if (kind === 'open_app') {
-      const app = typeof source.app === 'string' ? matchAgentApp(source.app) : null
-      if (!app || !appEntry(app)) continue
+      const known = typeof source.app === 'string' ? matchAgentApp(source.app) : null
+      const app = known ?? sanitizeAppName(source.app)
+      if (!app) continue
+      if (known && !appEntry(known)) continue
       actions.push({ kind, app, note })
       continue
     }
@@ -518,8 +848,14 @@ export async function prepareAgent(input: {
   }
   const matchedApp =
     input.kind === 'app' || input.kind === 'settings' ? matchAgentApp(input.goal) : null
-  const app = matchedApp && !APP_EXTRA_ACTION.test(input.goal) ? matchedApp : null
-  const needsVision = input.kind !== 'browse' && !app
+  const simpleLaunch = !APP_EXTRA_ACTION.test(input.goal)
+  const app = matchedApp && simpleLaunch ? matchedApp : null
+  let launch: string | null = null
+  if (!app && input.kind === 'app' && simpleLaunch) {
+    const candidate = extractLaunchName(input.goal)
+    if (candidate && (await isAppAvailable(candidate))) launch = candidate
+  }
+  const needsVision = input.kind !== 'browse' && !app && !launch
   const provider = needsVision ? providerForAgent() : null
   if (needsVision) {
     if (!provider) return { error: 'no_vision' }
@@ -532,7 +868,7 @@ export async function prepareAgent(input: {
   }
   if (prepared.size >= 6) prepared.delete(prepared.keys().next().value as string)
   const id = crypto.randomUUID()
-  const providerLabel = app ? 'Chelp AI' : label(provider ?? settings.providers[0] ?? null)
+  const providerLabel = app || launch ? 'Chelp AI' : label(provider ?? settings.providers[0] ?? null)
   prepared.set(id, {
     id,
     conversationId: input.conversationId,
@@ -541,6 +877,7 @@ export async function prepareAgent(input: {
     goal: input.goal.slice(0, 1500),
     url: input.url,
     app: app ?? undefined,
+    launch: launch ?? undefined,
     provider,
     providerLabel,
     needsScreenshot: needsVision,
@@ -607,6 +944,27 @@ export async function buildAgentPlan(
     }
   }
 
+  if (pending.kind === 'app' && pending.launch) {
+    const actions: AgentAction[] = [
+      {
+        kind: 'open_app',
+        app: pending.launch,
+        note: lang === 'ru' ? `Запускаю: ${pending.launch}` : `Launching ${pending.launch}`
+      },
+      { kind: 'finish' }
+    ]
+    const plan: AgentPlan = {
+      id,
+      goal: pending.goal,
+      kind: pending.kind,
+      risk: 'low',
+      steps: buildSteps(actions),
+      providerLabel: pending.providerLabel
+    }
+    pending.plan = plan
+    return plan
+  }
+
   const provider = pending.provider
   if (!provider || !pending.dataUrl) return { error: 'no_vision' }
   const store = getStore()
@@ -633,10 +991,10 @@ export async function buildAgentPlan(
       const input =
         attempt === 0
           ? prompt
-          : `${prompt}\n\nYour previous reply was rejected. Reply with a single valid JSON object only, using the allowed actions and coordinates.`
+          : `${prompt}\n\nYour previous reply was rejected. Reply with a single valid JSON object only, using the allowed actions and coordinates. Never open PowerShell, Command Prompt or Terminal and never type shell commands to start a program: Chelp launches programs directly with one open_app step and the program name, for example {"kind":"open_app","app":"Telegram"}.`
       const raw = await requestPlanText(provider, pending.dataUrl, input)
       const parsed = parseJsonPlan(raw)
-      const actions = sanitizeSteps(parsed)
+      const actions = stripUnrequestedShells(sanitizeSteps(parsed), pending.goal)
       if (!actions.some((action) => action.kind !== 'finish' && action.kind !== 'wait')) {
         throw new Error('empty_plan')
       }
@@ -738,16 +1096,21 @@ async function executeAction(action: AgentAction, lang: Lang): Promise<void> {
     }
     case 'open_app': {
       const entry = appEntry(action.app)
-      if (!entry) throw new Error('blocked_app')
-      if (entry.target.endsWith(':')) {
-        await shell.openExternal(entry.target)
-      } else {
-        try {
-          await launchDetached(entry.target, entry.args)
-        } catch {
-          if (entry.target === 'wt.exe') await launchDetached('cmd.exe', ['/K'])
-          else throw new Error('spawn_failed')
+      if (entry) {
+        if (entry.target.endsWith(':')) {
+          await shell.openExternal(entry.target)
+        } else {
+          try {
+            await launchDetached(entry.target, entry.args)
+          } catch {
+            if (entry.target === 'wt.exe') await launchDetached('cmd.exe', ['/K'])
+            else throw new Error('spawn_failed')
+          }
         }
+      } else if (action.app) {
+        await launchApp(action.app)
+      } else {
+        throw new Error('blocked_app')
       }
       await sleep(1200)
       return
