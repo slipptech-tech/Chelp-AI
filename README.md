@@ -8,22 +8,9 @@
   A Windows desktop AI assistant that reads your screen — errors, dialogs, terminal output, and code — and explains what happened and how to fix it.
 
   <sub>Windows 10/11 · Electron · React · TypeScript
-  <p>
-    <a href="https://chelpai.pages.dev/?dl=windows#download" title="Download the Windows installer">
-      <img src="https://api.iconify.design/mdi/microsoft-windows.svg?color=%230078D4" width="38" height="38" alt="Download the Windows installer" /><br />
-      <sub>Windows</sub>
-    </a>
-    &nbsp;&nbsp;
-    <a href="https://chelpai.pages.dev/?dl=portable#download" title="Download the portable archive">
-      <img src="https://api.iconify.design/mdi/usb.svg?color=%238B5CF6" width="38" height="38" alt="Download the portable archive" /><br />
-      <sub>Portable</sub>
-    </a>
-    &nbsp;&nbsp;
-    <a href="https://chelpai.pages.dev/?dl=linux#download" title="Download the Linux build">
-      <img src="https://api.iconify.design/logos/linux-tux.svg" width="38" height="38" alt="Download the Linux build" /><br />
-      <sub>Linux</sub>
-    </a>
-  </p>
+  <p>Download for</p>
+
+  <p><a href="https://chelpai.pages.dev/?dl=windows#download" title="Windows installer"><img src="https://api.iconify.design/mdi/microsoft-windows.svg?color=%230078D4" width="36" height="36" alt="Windows installer" /></a>&nbsp;&nbsp;&nbsp;&nbsp;<a href="https://chelpai.pages.dev/?dl=portable#download" title="Portable archive"><img src="https://api.iconify.design/mdi/usb.svg?color=%238B5CF6" width="36" height="36" alt="Portable archive" /></a>&nbsp;&nbsp;&nbsp;&nbsp;<a href="https://chelpai.pages.dev/?dl=linux#download" title="Linux build"><img src="https://api.iconify.design/logos/linux-tux.svg" width="36" height="36" alt="Linux build" /></a></p>
 </div>
 
 Chelp AI lives in the system tray, opens with a global hotkey, and stays out of your way until you need it. When something breaks on screen, capture it once — a display, a window, or a drawn region — and Chelp tells you what you are looking at: the problem, the likely cause, and the fix, in plain language.
