@@ -1,21 +1,57 @@
-MIT License
+## Copyright (c) 2026 Slipp Tech. All Rights Reserved.
 
-Copyright (c) 2026 SlippTech
+## 1. Ownership
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+All rights, title, and interest in and to this software, including its source code, documentation, design, branding, graphics, and other associated materials, belong to Slipp Tech or their respective copyright holders.
+Access to this repository does not transfer any ownership rights.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+## 2. Free Access
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+The source code is publicly available for viewing, reading, and educational inspection.
+The software is provided free of charge by Slipp Tech.
+Users may access the repository and examine the source code for informational and educational purposes.
+
+## 3. Restrictions
+
+Without prior written permission from Slipp Tech, you may NOT:
+
+- Redistribute, republish, or share copies of this software or its source code.
+- Claim this project or any substantial part of it as your own work.
+- Rebrand, rename, or publish the project under another name.
+- Sell, sublicense, or commercially distribute the software.
+- Publish modified or derivative versions of this project.
+- Remove or modify copyright notices, author attribution, or license information.
+- Use the project's branding, logos, or identity in a way that suggests ownership or official affiliation.
+
+## 4. Modifications
+
+Viewing and studying the source code is permitted.
+Modifying the source code for private educational experimentation is permitted, provided that modified versions are not redistributed, published, or presented as official Slipp Tech products.
+
+## 5. Commercial Use
+
+Commercial use, resale, monetization, or incorporation of this software into commercial products is prohibited without prior written authorization from Slipp Tech.
+
+## 6. No Warranty
+
+This software is provided "AS IS", without warranty of any kind, express or implied.
+
+Slipp Tech shall not be liable for any damages or claims arising from the use of this software, to the extent permitted by applicable law.
+
+## 7. Termination
+
+Any violation of this license automatically terminates the permissions granted under it, subject to applicable law.
+
+## 8. Permissions
+
+For permissions not explicitly granted by this license, contact Slipp Tech and obtain written authorization before proceeding.
+
+## 9. Acceptance
+
+By accessing or using this software, you acknowledge that you have read and understood this license and agree to its applicable terms.
+
+---
+
+**SLIPP TECH**  
+All Rights Reserved.  
+https://github.com/slipptech-tech
