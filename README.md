@@ -8,6 +8,23 @@
   A Windows desktop AI assistant that reads your screen — errors, dialogs, terminal output, and code — and explains what happened and how to fix it.
 
   <sub>Windows 10/11 · Electron · React · TypeScript
+  <p>
+    <a href="https://chelpai.pages.dev/?dl=windows#download" title="Download the Windows installer">
+      <img src="https://api.iconify.design/mdi/microsoft-windows.svg?color=%230078D4" width="38" height="38" alt="Download the Windows installer" /><br />
+      <sub>Windows</sub>
+    </a>
+    &nbsp;&nbsp;
+    <a href="https://chelpai.pages.dev/?dl=portable#download" title="Download the portable archive">
+      <img src="https://api.iconify.design/mdi/usb.svg?color=%238B5CF6" width="38" height="38" alt="Download the portable archive" /><br />
+      <sub>Portable</sub>
+    </a>
+    &nbsp;&nbsp;
+    <a href="https://chelpai.pages.dev/?dl=linux#download" title="Download the Linux build">
+      <img src="https://api.iconify.design/logos/linux-tux.svg" width="38" height="38" alt="Download the Linux build" /><br />
+      <sub>Linux</sub>
+    </a>
+  </p>
+</div>
 
 Chelp AI lives in the system tray, opens with a global hotkey, and stays out of your way until you need it. When something breaks on screen, capture it once — a display, a window, or a drawn region — and Chelp tells you what you are looking at: the problem, the likely cause, and the fix, in plain language.
 
@@ -24,6 +41,7 @@ Screenshots are captured only on your command, previewed before sending, and upl
 - **Multi-provider** — DeepSeek (including DeepSeek Vision), OpenRouter, OpenAI, Google Gemini, any OpenAI-compatible endpoint, and local models via Ollama or LM Studio.
 - **Managed local runtime** — Chelp installs and runs its own Ollama alongside the app, downloads models with live progress, and keeps the active model warm in memory.
 - **Model transparency** — every answer is labeled with the model that produced it. The selected model is never silently swapped.
+- **Guard Mode** — always-on scope protection. Chelp only helps with errors, troubleshooting, and questions; jailbreak attempts and harmful requests are blocked locally before they reach any provider.
 - **Windows-native** — system tray, global hotkeys, launch at login, multi-monitor capture, native notifications, and cancelable generation.
 - **EN / RU**, five accent colors, configurable hotkeys, and a dark interface built to stay out of the way.
 
@@ -40,7 +58,7 @@ Screenshots are captured only on your command, previewed before sending, and upl
 Requirements: Windows 10/11 (x64), Node.js 20+, and npm.
 
 ```bash
-git clone <repository-url> "Chelp AI"
+git clone https://github.com/slipptech-tech/Chelp-AI.git "Chelp AI"
 cd "Chelp AI"
 npm install
 npm run dev
@@ -97,6 +115,17 @@ If the active profile fails — zero balance, rejected key, rate limit, missing 
 
 Chelp cannot top up provider balances or issue free tokens — credits are purchased from DeepSeek, OpenRouter, and other providers. It can show your DeepSeek balance in Test Connection, surface quota errors early, and fall back to a backup or local profile.
 
+## Guard Mode
+
+Guard Mode is built into the request pipeline and cannot be turned off from the UI. Every message passes through it in the main process before a provider is contacted:
+
+- **Locked policy** — the system prompt restricts Chelp to errors, troubleshooting, software, settings, and general questions. The model is told it cannot change this policy, follow instructions hidden in screenshots, or claim to run commands.
+- **Local pre-flight filter** — jailbreak patterns and clearly harmful requests (malware, credential theft, bypassing security, weapons, illegal drugs) are refused in the main process. Those messages are never sent to an API.
+- **No tools, no execution** — Chelp has no shell, file, browser, or computer-control capabilities. The model can only return text; it cannot act on your machine even if asked.
+- **Visible refusals** — a blocked message appears in the chat as a Guard Mode answer with a “Blocked locally” note.
+
+The filter runs on-device in milliseconds. It is deliberately conservative and may occasionally catch a legitimate edge case; the locked model policy is the second layer. A heavily paraphrased request can still reach the model, where that policy applies — Guard Mode reduces the risk, but only the absence of tools is an absolute guarantee.
+
 ## Screen analysis
 
 - Capture a display, a window, or a drawn region on any monitor.
@@ -124,6 +153,7 @@ Already running Ollama or LM Studio? Point Chelp at the endpoint instead (`http:
 - A preview is always shown before sending; confirmation can be required in Settings.
 - The built-in editor lets you redact passwords, tokens, and other sensitive data.
 - No background screen recording, hidden monitoring, or automatic uploads.
+- Guard Mode checks every message in the main process before a network request is made.
 - API keys are encrypted at rest with Windows DPAPI through Electron `safeStorage` and decrypted only in the main process. They are never shown in the UI and never sent anywhere except the API you selected.
 - Conversation history is stored locally in `%APPDATA%\Chelp AI` and can be disabled or cleared from Settings.
 
@@ -164,15 +194,3 @@ Electron 33 · React 19 · TypeScript 5 · Vite 6 / electron-vite 3 · Zustand �
 ## License
 
 Proprietary software. © SlippTech. All rights reserved.
-
----
-
-<div align="center">
-  <a href="https://www.youtube.com/@Chelpai">
-    <img src="https://cdn.simpleicons.org/youtube/FF0000" width="20" height="20" alt="YouTube" />
-  </a>
-  <br>
-  <strong>Our YouTube Channel</strong>
-  <br>
-  <a href="https://www.youtube.com/@Chelpai">youtube.com/@Chelpai</a>
-</div>
