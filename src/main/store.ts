@@ -9,6 +9,8 @@ import type {
   Conversation,
   ConversationMeta,
   ExportResult,
+  MemoryEntry,
+  MemoryKind,
   Provider,
   SavedAnswer,
   Settings
@@ -33,6 +35,7 @@ const DEFAULT_SETTINGS: Settings = {
   photoRetentionDays: 14,
   agentPermission: 'ask',
   agentAllowedChats: [],
+  aiMemory: true,
   hotkeysEnabled: true,
   hotkeys: { float: 'Ctrl+Shift+Space', capture: 'Ctrl+Shift+X' },
   providers: DEFAULT_PROVIDERS,
@@ -96,14 +99,18 @@ function metaOf(conversation: Conversation): ConversationMeta {
   }
 }
 
+const MAX_MEMORY_ENTRIES = 80
+
 export class Store {
   readonly events = new EventEmitter()
   settings: Settings
   saved: SavedAnswer[]
+  memory: MemoryEntry[] = []
   private conversations: Conversation[] = []
   private settingsFile: string
   private conversationsFile: string
   private savedFile: string
+  private memoryFile: string
   private photosDir: string
   private writeTimer: NodeJS.Timeout | null = null
 
@@ -113,6 +120,7 @@ export class Store {
     this.settingsFile = path.join(dir, 'settings.json')
     this.conversationsFile = path.join(dir, 'conversations.json')
     this.savedFile = path.join(dir, 'saved.json')
+    this.memoryFile = path.join(dir, 'memory.json')
     this.photosDir = path.join(dir, 'photos-cache')
     const legacyPhotos = path.join(dir, 'attachments')
     fs.mkdirSync(this.photosDir, { recursive: true })
@@ -146,6 +154,13 @@ export class Store {
     }
     const saved = readJson<SavedAnswer[]>(this.savedFile, [])
     this.saved = Array.isArray(saved) ? saved : []
+    const memory = readJson<MemoryEntry[]>(this.memoryFile, [])
+    this.memory = Array.isArray(memory)
+      ? memory.filter(
+          (entry): entry is MemoryEntry =>
+            Boolean(entry) && typeof entry.id === 'string' && typeof entry.text === 'string'
+        )
+      : []
   }
 
   get attachmentsPath(): string {
@@ -470,6 +485,53 @@ export class Store {
     this.saved = this.saved.filter((s) => s.id !== id)
     writeJson(this.savedFile, this.saved)
     this.events.emit('saved', this.saved)
+  }
+
+  listMemory(): MemoryEntry[] {
+    return this.memory
+  }
+
+  remember(input: { kind: MemoryKind; text: string }): MemoryEntry | null {
+    const text = input.text.trim()
+    if (!text) return null
+    const now = Date.now()
+    const existing = this.memory.find(
+      (entry) => entry.text.toLowerCase() === text.toLowerCase()
+    )
+    if (existing) {
+      existing.createdAt = now
+      existing.kind = input.kind
+      this.persistMemory()
+      return existing
+    }
+    const entry: MemoryEntry = {
+      id: randomUUID(),
+      kind: input.kind,
+      text,
+      createdAt: now
+    }
+    this.memory.unshift(entry)
+    if (this.memory.length > MAX_MEMORY_ENTRIES) this.memory.length = MAX_MEMORY_ENTRIES
+    this.persistMemory()
+    return entry
+  }
+
+  removeMemory(id: string): void {
+    const next = this.memory.filter((entry) => entry.id !== id)
+    if (next.length === this.memory.length) return
+    this.memory = next
+    this.persistMemory()
+  }
+
+  clearMemory(): void {
+    if (this.memory.length === 0) return
+    this.memory = []
+    this.persistMemory()
+  }
+
+  private persistMemory(): void {
+    writeJson(this.memoryFile, this.memory)
+    this.events.emit('memory', this.memory)
   }
 
   private persistConversations(): void {

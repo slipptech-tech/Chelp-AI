@@ -21,6 +21,15 @@ export interface Hotkeys {
   capture: string
 }
 
+export type MemoryKind = 'screen' | 'task' | 'note'
+
+export interface MemoryEntry {
+  id: string
+  kind: MemoryKind
+  text: string
+  createdAt: number
+}
+
 export interface WindowBounds {
   x: number
   y: number
@@ -48,6 +57,7 @@ export interface Settings {
   photoRetentionDays: number
   agentPermission: AgentPermission
   agentAllowedChats: string[]
+  aiMemory: boolean
   hotkeysEnabled: boolean
   hotkeys: Hotkeys
   providers: Provider[]
@@ -404,6 +414,12 @@ export interface ChelpAPI {
     add(input: { conversationId: string; messageId: string; question: string; answer: string }): Promise<SavedAnswer>
     remove(id: string): Promise<void>
     onChanged(cb: (list: SavedAnswer[]) => void): () => void
+  }
+  memory: {
+    list(): Promise<MemoryEntry[]>
+    remove(id: string): Promise<void>
+    clear(): Promise<void>
+    onChanged(cb: (list: MemoryEntry[]) => void): () => void
   }
   chat: {
     send(payload: SendChatPayload): Promise<{ ok: boolean; error?: ChatError }>

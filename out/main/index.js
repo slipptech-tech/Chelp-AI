@@ -129,6 +129,7 @@ const DEFAULT_SETTINGS = {
   photoRetentionDays: 14,
   agentPermission: "ask",
   agentAllowedChats: [],
+  aiMemory: true,
   hotkeysEnabled: true,
   hotkeys: { float: "Ctrl+Shift+Space", capture: "Ctrl+Shift+X" },
   providers: DEFAULT_PROVIDERS,
@@ -184,14 +185,17 @@ function metaOf(conversation) {
     preview: (last?.content ?? "").replace(/[#*`>\n]+/g, " ").trim().slice(0, 140)
   };
 }
+const MAX_MEMORY_ENTRIES = 80;
 class Store {
   events = new node_events.EventEmitter();
   settings;
   saved;
+  memory = [];
   conversations = [];
   settingsFile;
   conversationsFile;
   savedFile;
+  memoryFile;
   photosDir;
   writeTimer = null;
   constructor() {
@@ -200,6 +204,7 @@ class Store {
     this.settingsFile = path.join(dir, "settings.json");
     this.conversationsFile = path.join(dir, "conversations.json");
     this.savedFile = path.join(dir, "saved.json");
+    this.memoryFile = path.join(dir, "memory.json");
     this.photosDir = path.join(dir, "photos-cache");
     const legacyPhotos = path.join(dir, "attachments");
     fs.mkdirSync(this.photosDir, { recursive: true });
@@ -229,6 +234,10 @@ class Store {
     }
     const saved = readJson(this.savedFile, []);
     this.saved = Array.isArray(saved) ? saved : [];
+    const memory = readJson(this.memoryFile, []);
+    this.memory = Array.isArray(memory) ? memory.filter(
+      (entry) => Boolean(entry) && typeof entry.id === "string" && typeof entry.text === "string"
+    ) : [];
   }
   get attachmentsPath() {
     return this.photosDir;
@@ -515,6 +524,48 @@ class Store {
     this.saved = this.saved.filter((s) => s.id !== id);
     writeJson(this.savedFile, this.saved);
     this.events.emit("saved", this.saved);
+  }
+  listMemory() {
+    return this.memory;
+  }
+  remember(input) {
+    const text = input.text.trim();
+    if (!text) return null;
+    const now = Date.now();
+    const existing = this.memory.find(
+      (entry2) => entry2.text.toLowerCase() === text.toLowerCase()
+    );
+    if (existing) {
+      existing.createdAt = now;
+      existing.kind = input.kind;
+      this.persistMemory();
+      return existing;
+    }
+    const entry = {
+      id: node_crypto.randomUUID(),
+      kind: input.kind,
+      text,
+      createdAt: now
+    };
+    this.memory.unshift(entry);
+    if (this.memory.length > MAX_MEMORY_ENTRIES) this.memory.length = MAX_MEMORY_ENTRIES;
+    this.persistMemory();
+    return entry;
+  }
+  removeMemory(id) {
+    const next = this.memory.filter((entry) => entry.id !== id);
+    if (next.length === this.memory.length) return;
+    this.memory = next;
+    this.persistMemory();
+  }
+  clearMemory() {
+    if (this.memory.length === 0) return;
+    this.memory = [];
+    this.persistMemory();
+  }
+  persistMemory() {
+    writeJson(this.memoryFile, this.memory);
+    this.events.emit("memory", this.memory);
   }
   persistConversations() {
     if (!this.settings.saveHistory) return;
@@ -997,6 +1048,8 @@ You help people understand what is happening on their screen: application errors
 Rules:
 - Reply in the language the user writes in.
 - Be concrete and practical. Prefer short paragraphs, tight lists and real steps over theory.
+- Be decisive. When the request is clear, answer and act; ask a clarifying question only when the goal is genuinely ambiguous or a value cannot be inferred.
+- If remembered context about this PC is provided, use it when it fits — installed apps, past errors, recurring tasks — unless it contradicts what you see now.
 - Use Markdown. Put commands, paths, code and settings values in code formatting.
 - Never invent UI elements, error codes or file contents you cannot see. If something is unclear, say what you need.
 - When screen content is attached, base every claim on what is actually visible. Separate observations from likely causes.
@@ -1031,7 +1084,9 @@ const SETTINGS_INTENT = /(настрой|настроить|измени|изм�
 const CODE_INTENT = /(файл|файлы|код|скрипт|\bfile\b|\bcode\b|\bscript\b|\.(txt|md|json|js|ts|tsx|jsx|css|html|py|ps1|yml|yaml|ini|conf|log)\b|баг|\bbug\b)/i;
 const OPEN_VERB = /(открой|откройте|открыть|запусти|запустите|запустить|включи|включите|включить|\bopen\b|\blaunch\b|\bstart\b|\brun\b)/i;
 const ACTION_VERB = /(открой|откройте|открыть|запусти|запустите|запустить|включи|включите|включить|выключи|выключите|выключить|переключи|переключить|настрой|настроить|измени|измените|изменить|поменяй|поменять|перенеси|перенести|перемести|переместить|скопируй|скопировать|переименуй|переименовать|установи|установить|скачай|скачать|создай|создать|подключи|подключить|\bopen\b|\blaunch\b|\bstart\b|\brun\b|\binstall\b|\bdownload\b|\bmove\b|\bcopy\b|\brename\b|\bchange\b|\bcreate\b|\bconfigure\b|\benable\b|\bdisable\b|\bset up\b)/i;
-const NOT_ACTIONABLE = /^(что такое|что значит|объясни|объясните|расскажи|what is|what does|explain|tell me about)\b/i;
+const NOT_ACTIONABLE = /^(что такое|что значит|объясни(?:те)?|расскажи(?:те)?|what is|what does|explain|tell me about)(?=\s|$|[,.!?:])/i;
+const QUESTION_START = /^(как|где|почему|зачем|что|сколько|какой|какая|какие|можно ли|стоит ли|how|where|why|what|which|who|when)(?=\s|$|[,.!?:])/i;
+const REQUEST_PHRASE = /\b(can|could|would) you\b|^\s*(please|пожалуйста|плиз)(?=\s|$|[,.!?])/i;
 const URL_PATTERN = /\bhttps?:\/\/[^\s<>"']+/i;
 const DOMAIN_PATTERN = /\b((?:[\w-]+\.)+(?:com|ru|org|net|io|app|dev|site|me|tech))(?:\/[^\s<>"']*)?/i;
 const APP_PATTERNS = [
@@ -1069,6 +1124,9 @@ function detectAgentIntent(text) {
   if (NOT_ACTIONABLE.test(goal) && !FIX_INTENT.test(goal) && !BROWSER_INTENT.test(goal) && !ACTION_VERB.test(goal)) {
     return null;
   }
+  if (QUESTION_START.test(goal) && !REQUEST_PHRASE.test(goal) && !FIX_INTENT.test(goal)) {
+    return null;
+  }
   const url = extractUrl(goal);
   if (BROWSER_INTENT.test(goal) && url) {
     return { kind: "browse", goal, url, capabilities: ["browser"] };
@@ -1093,6 +1151,57 @@ function detectAgentIntent(text) {
     return { kind: "action", goal, capabilities: dedupe(capabilities) };
   }
   return null;
+}
+const MAX_MEMORY_TEXT = 260;
+const MAX_PROMPT_ENTRIES = 12;
+const SECRET_PATTERN = /(sk-[a-z0-9_-]{12,}|api[_-]?key\s*[:=]\s*\S+|password\s*[:=]\s*\S+|bearer\s+[a-z0-9._-]{12,}|-----BEGIN [A-Z ]+-----)/i;
+function cleanMemoryText(raw) {
+  let text = raw.replace(/```[\s\S]*?```/g, " ").replace(/[#>*_`|]+/g, " ").replace(/\s+/g, " ").trim();
+  text = text.replace(
+    /^(Problem|Cause|Explanation|Solution|Additional Information|Проблема|Причина|Объяснение|Решение|Дополнительно)\b[:\s-]*/i,
+    ""
+  );
+  if (text.length < 8) return null;
+  if (SECRET_PATTERN.test(text)) return null;
+  if (text.length > MAX_MEMORY_TEXT) text = `${text.slice(0, MAX_MEMORY_TEXT - 1).trimEnd()}…`;
+  return text;
+}
+function screenMemoryFrom(conversation, message) {
+  const problem = /###\s*Problem\s*\n+([\s\S]*?)(?:\n###|$)/i.exec(message.content)?.[1];
+  const body = problem ?? message.content;
+  const title = (conversation.title.trim() || (conversation.mode === "screen" ? "Screen analysis" : "Chat")).replace(/[.:;!?]+$/, "");
+  return cleanMemoryText(`${title}: ${body}`);
+}
+function taskMemoryText(goal, steps, status, lang) {
+  const shortGoal = goal.replace(/\s+/g, " ").trim();
+  if (status === "done") {
+    return cleanMemoryText(
+      lang === "ru" ? `Задача «${shortGoal}» выполнена автоматически (шагов: ${steps}).` : `Task "${shortGoal}" completed automatically (${steps} steps).`
+    );
+  }
+  return cleanMemoryText(
+    lang === "ru" ? `Задача «${shortGoal}» не завершилась — план остановлен.` : `Task "${shortGoal}" did not complete — the plan stopped.`
+  );
+}
+function memoryPromptBlock(entries, displayLang) {
+  if (entries.length === 0) return "";
+  const ordered = [...entries].sort((a, b) => b.createdAt - a.createdAt).slice(0, MAX_PROMPT_ENTRIES);
+  const labels2 = {
+    screen: { ru: "Экран", en: "Screen" },
+    task: { ru: "Действие", en: "Action" },
+    note: { ru: "Факт", en: "Fact" }
+  };
+  const lines = ordered.map((entry) => {
+    const label2 = labels2[entry.kind]?.[displayLang] ?? labels2.note.en;
+    const date = new Date(entry.createdAt).toLocaleDateString(displayLang === "ru" ? "ru-RU" : "en-US", {
+      day: "2-digit",
+      month: "short"
+    });
+    return `- [${label2} · ${date}] ${entry.text}`;
+  });
+  const header = displayLang === "ru" ? "Память Chelp о предыдущих сессиях на этом ПК (локальная, никуда не отправляется). Используй её, когда это действительно помогает: учитывай установленные программы, прошлые ошибки и задачи пользователя. Не цитируй память дословно и не упоминай сам механизм памяти." : "Chelp memory from earlier sessions on this PC (local only, never uploaded). Use it when it genuinely helps: account for installed apps, past errors and the user’s recurring tasks. Never quote it verbatim and never mention the memory mechanism itself.";
+  return `${header}
+${lines.join("\n")}`;
 }
 const ZIP_URL = "https://github.com/ollama/ollama/releases/latest/download/ollama-windows-amd64.zip";
 const HOST = "127.0.0.1:11434";
@@ -1540,10 +1649,17 @@ ${SCREEN_PROMPT}` : FLOAT_PROMPT : mode === "screen" ? SCREEN_PROMPT : SYSTEM_PR
   const offerNote = offer ? `
 
 An action card is attached to your reply: Chelp AI can perform the necessary steps on the user's computer right after answering. Never say that you are unable to open apps, launch programs, change settings or act on this PC. Do not give manual instructions as the only option. In 2-4 short sentences name the cause or the exact route, include the command or setting name when it helps, and say that Chelp will handle it via the card below.` : "";
+  const store = getStore();
+  const memory = store.settings.aiMemory ? memoryPromptBlock(store.listMemory(), store.settings.language) : "";
   const messages = [
-    { role: "system", content: `${system}
+    {
+      role: "system",
+      content: `${system}
 
-${GUARD_POLICY}${offerNote}` }
+${GUARD_POLICY}${memory ? `
+
+${memory}` : ""}${offerNote}`
+    }
   ];
   const history = conversation.messages.filter((m) => !m.error || m.content.trim()).slice(-24);
   const imageMessages = /* @__PURE__ */ new Set();
@@ -1660,6 +1776,10 @@ async function run(conversationId, providers, mode, surface) {
     };
     store.addMessage(conversationId, message);
     const updated = store.getConversation(conversationId);
+    if (updated && !error && mode === "screen" && store.settings.aiMemory) {
+      const remembered = screenMemoryFrom(updated, message);
+      if (remembered) store.remember({ kind: "screen", text: remembered });
+    }
     if (updated) {
       broadcast2("chat:done", { conversationId, messageId, conversation: updated });
       if (!error) notifyDone(updated, mode);
@@ -2524,32 +2644,49 @@ async function findStartMenuApp(name) {
   });
   return { name: candidates[0].name, id: candidates[0].id };
 }
+const APP_LOOKUP_TTL = 10 * 60 * 1e3;
+const appLookupCache = /* @__PURE__ */ new Map();
+async function resolveAppTargets(name) {
+  const key = name.trim().toLowerCase();
+  const cached2 = appLookupCache.get(key);
+  if (cached2 && Date.now() - cached2.at < APP_LOOKUP_TTL) {
+    return { exe: cached2.exe, shortcut: cached2.shortcut, startApp: cached2.startApp };
+  }
+  const exe = await findInstalledExecutable(name);
+  const shortcut = exe ? null : findStartMenuShortcut(name);
+  const startApp = exe || shortcut ? null : await findStartMenuApp(name);
+  const targets = { exe, shortcut, startApp };
+  appLookupCache.set(key, { ...targets, at: Date.now() });
+  if (appLookupCache.size > 120) {
+    const oldest = appLookupCache.keys().next().value;
+    if (oldest) appLookupCache.delete(oldest);
+  }
+  return targets;
+}
 async function launchApp(raw) {
   const clean = sanitizeAppName(raw);
   if (!clean) throw new Error("blocked_app");
   const name = resolveAlias(clean);
-  const exe = await findInstalledExecutable(name);
-  if (exe) {
-    if (/\.exe$/i.test(exe)) {
-      await launchDetached(exe);
+  const targets = await resolveAppTargets(name);
+  if (targets.exe) {
+    if (/\.exe$/i.test(targets.exe)) {
+      await launchDetached(targets.exe);
     } else {
-      const error = await electron.shell.openPath(exe);
+      const error = await electron.shell.openPath(targets.exe);
       if (error) throw new Error("app_not_found");
     }
     return;
   }
-  const shortcut = findStartMenuShortcut(name);
-  if (shortcut) {
-    const error = await electron.shell.openPath(shortcut);
+  if (targets.shortcut) {
+    const error = await electron.shell.openPath(targets.shortcut);
     if (!error) return;
   }
-  const startApp = await findStartMenuApp(name);
-  if (startApp) {
-    if (/^[a-z]:\\/i.test(startApp.id) || /\.exe$/i.test(startApp.id)) {
-      await launchDetached(startApp.id);
+  if (targets.startApp) {
+    if (/^[a-z]:\\/i.test(targets.startApp.id) || /\.exe$/i.test(targets.startApp.id)) {
+      await launchDetached(targets.startApp.id);
     } else {
       try {
-        await electron.shell.openExternal(`shell:AppsFolder\\${startApp.id}`);
+        await electron.shell.openExternal(`shell:AppsFolder\\${targets.startApp.id}`);
       } catch {
         throw new Error("app_not_found");
       }
@@ -2561,9 +2698,17 @@ async function launchApp(raw) {
 async function isAppAvailable(raw) {
   const name = resolveAlias(raw);
   if (matchAgentApp(name)) return true;
-  if (await findInstalledExecutable(name)) return true;
-  if (findStartMenuShortcut(name)) return true;
-  return Boolean(await findStartMenuApp(name));
+  const targets = await resolveAppTargets(name);
+  return Boolean(targets.exe || targets.shortcut || targets.startApp);
+}
+async function missingAppTargets(actions) {
+  const missing = [];
+  for (const action of actions) {
+    if (action.kind !== "open_app" || !action.app) continue;
+    if (matchAgentApp(action.app)) continue;
+    if (!await isAppAvailable(action.app)) missing.push(action.app);
+  }
+  return [...new Set(missing)];
 }
 function extractLaunchName(goal) {
   const match = goal.trim().match(
@@ -2593,7 +2738,7 @@ The user asked Chelp to help with a task on their computer. You get a screenshot
 Work like a careful technician: first read what is actually on screen (error text, dialogs, which app is focused), decide the shortest reliable way to solve the task, then return the concrete steps.
 
 Return ONLY valid JSON, no markdown, no commentary, with this shape:
-{"goal":"short restatement","risk":"low"|"medium","steps":[{"kind":"move|click|double_click|right_click|type|press|scroll|wait|open_url|open_app|edit_file|finish","x":0.0,"y":0.0,"text":"","keys":"","amount":0,"url":"","app":"","path":"","find":"","replace":"","note":"short action description"}]}
+{"goal":"short restatement","risk":"low"|"medium","memory":"optional durable fact about this PC worth remembering later, max 200 chars","steps":[{"kind":"move|click|double_click|right_click|type|press|scroll|wait|open_url|open_app|edit_file|finish","x":0.0,"y":0.0,"text":"","keys":"","amount":0,"url":"","app":"","path":"","find":"","replace":"","note":"short action description"}]}
 
 Rules:
 - Screenshot coordinates are normalized: x and y from 0.0 to 1.0, origin at the top-left of the image.
@@ -2602,8 +2747,11 @@ Rules:
 - If the needed window or app is already open on screen, use it instead of launching another copy.
 - After an action that changes the screen (opening a window or menu, pressing keys), add a wait step of 600-1500 ms before interacting with the new state.
 - Keep one action per step and write "note" in the language of the user request, describing the action for the user without technical coordinates.
+- Understand the request as a whole. If the user wants several things, cover each in order and do not replace the real task with a similar-looking one.
+- When the request is to open an app and then do something in it (write a note, search, paste text), plan open_app first, then a wait step, then the exact type and press steps. Keep typed text exactly as the user wrote it.
 - To launch a program use one open_app step with "app" set to the program name as it appears in the Start menu or its exe name, for example "Telegram", "Chrome", "Discord", "regedit", "devmgmt.msc". Chelp launches it directly, so never open PowerShell, Command Prompt or Terminal to start another program and never simulate the Start menu.
 - Built-in targets Chelp knows: {{APPS}}. Only open a shell when the user explicitly asks for it or needs an interactive console.
+- The user's earlier context may include what Chelp already learned about this PC. Use it to choose the right app, the right route and the right settings page.
 - The Win key is not available, so never plan press sequences that need it.
 - open_url accepts full http(s) links or official Windows Settings pages, for example ms-settings:windowsupdate, ms-settings:display, ms-settings:network, ms-settings:privacy, ms-settings:appsfeatures, ms-settings:sound, ms-settings:bluetooth, ms-settings:defaultapps.
 - For repair tasks, name the real cause in goal and notes and use built-in Windows tools; do not install unknown software.
@@ -2611,7 +2759,8 @@ Rules:
 - Never type passwords, API keys, payment data or personal secrets.
 - Only use edit_file when a file was provided below and a minimal find/replace is enough. Never invent file contents.
 - Do not click Chelp AI windows or anything about Chelp AI itself.
-- If the screen does not allow a step, skip it and explain why in note instead of guessing coordinates.`;
+- If the screen does not allow a step, skip it and explain why in note instead of guessing coordinates.
+- Use "memory" only for stable, reusable facts (installed apps, recurring errors, preferences). Never put names, passwords or secrets there.`;
 const KEY_CODES = {
   enter: 13,
   tab: 9,
@@ -2905,8 +3054,9 @@ function sanitizeSteps(raw) {
     }
     if (kind === "open_app") {
       const known = typeof source.app === "string" ? matchAgentApp(source.app) : null;
-      const app2 = known ?? sanitizeAppName(source.app);
-      if (!app2) continue;
+      const rawName = sanitizeAppName(source.app);
+      const app2 = known ?? (rawName ? resolveAlias(rawName) : null);
+      if (!app2 || /chelp/i.test(app2)) continue;
       if (known && !appEntry(known)) continue;
       actions.push({ kind, app: app2, note });
       continue;
@@ -3078,17 +3228,24 @@ The user mentioned this file, but it could not be read: ${file}`;
     }
   }
   const language = lang === "ru" ? "Russian" : "English";
+  const memory = store.settings.aiMemory ? memoryPromptBlock(store.listMemory(), lang) : "";
   const prompt = `User request:
 ${pending.goal}
 
 Chelp's written answer (for context):
-${advice || "(none)"}${fileContext}
+${advice || "(none)"}${fileContext}${memory ? `
+
+${memory}` : ""}
 
 Write all step notes in ${language}. Return only the JSON plan.`;
   let lastError = "plan_failed";
+  let missingApps = [];
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const input = attempt === 0 ? prompt : `${prompt}
+      const missingHint = missingApps.length ? `
+
+The program(s) ${missingApps.join(", ")} were not found on this computer. Use the exact Start-menu name of an installed app, reuse an app that is already open, or open_url the official website. Never launch a shell and never invent an exe name.` : "";
+      const input = attempt === 0 ? prompt : `${prompt}${missingHint}
 
 Your previous reply was rejected. Reply with a single valid JSON object only, using the allowed actions and coordinates. Never open PowerShell, Command Prompt or Terminal and never type shell commands to start a program: Chelp launches programs directly with one open_app step and the program name, for example {"kind":"open_app","app":"Telegram"}.`;
       const raw = await requestPlanText(provider, pending.dataUrl, input);
@@ -3097,8 +3254,19 @@ Your previous reply was rejected. Reply with a single valid JSON object only, us
       if (!actions.some((action) => action.kind !== "finish" && action.kind !== "wait")) {
         throw new Error("empty_plan");
       }
+      const missing = await missingAppTargets(actions);
+      if (missing.length > 0) {
+        throw new Error(`missing_apps|${missing.join(", ")}`);
+      }
       const riskRaw = parsed.risk;
       const risk = riskRaw === "medium" ? "medium" : riskFor(actions);
+      if (store.settings.aiMemory) {
+        const memoryRaw = parsed.memory;
+        if (typeof memoryRaw === "string") {
+          const memoryText = cleanMemoryText(memoryRaw);
+          if (memoryText) store.remember({ kind: "note", text: memoryText });
+        }
+      }
       const plan = {
         id,
         goal: pending.goal,
@@ -3111,8 +3279,13 @@ Your previous reply was rejected. Reply with a single valid JSON object only, us
       return plan;
     } catch (error) {
       const message = error instanceof Error ? error.message : "plan_failed";
-      lastError = /json|unexpected token/i.test(message) ? "bad_plan" : message;
-      if (lastError !== "bad_plan" && lastError !== "empty_plan") break;
+      if (message.startsWith("missing_apps|")) {
+        missingApps = message.slice("missing_apps|".length).split(", ");
+        lastError = "app_not_found";
+      } else {
+        lastError = /json|unexpected token/i.test(message) ? "bad_plan" : message;
+      }
+      if (lastError !== "bad_plan" && lastError !== "empty_plan" && lastError !== "app_not_found") break;
     }
   }
   return { error: lastError };
@@ -3384,6 +3557,10 @@ async function runAgent(id, lang) {
     message: failure || void 0
   });
   await appendResultMessage(pending, plan, lang, status, failure, token);
+  if (status !== "cancelled" && getStore().settings.aiMemory) {
+    const remembered = taskMemoryText(plan.goal, totalExecuted, status === "error" ? "error" : "done", lang);
+    if (remembered) getStore().remember({ kind: "task", text: remembered });
+  }
   prepared.delete(id);
   return status === "error" ? { ok: false, error: failure } : { ok: true };
 }
@@ -3815,6 +3992,13 @@ function registerIpc() {
   electron.ipcMain.handle("saved:remove", (_event, id) => {
     getStore().removeSaved(id);
   });
+  electron.ipcMain.handle("memory:list", () => getStore().listMemory());
+  electron.ipcMain.handle("memory:remove", (_event, id) => {
+    getStore().removeMemory(id);
+  });
+  electron.ipcMain.handle("memory:clear", () => {
+    getStore().clearMemory();
+  });
   electron.ipcMain.handle("chat:send", (_event, payload) => sendChat(payload));
   electron.ipcMain.handle("chat:abort", (_event, conversationId) => {
     abortRequest(conversationId);
@@ -3961,6 +4145,11 @@ if (!gotLock) {
     store.events.on("saved", (list) => {
       for (const win of electron.BrowserWindow.getAllWindows()) {
         if (!win.isDestroyed()) win.webContents.send("saved:changed", list);
+      }
+    });
+    store.events.on("memory", (list) => {
+      for (const win of electron.BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send("memory:changed", list);
       }
     });
     electron.app.on("window-all-closed", () => {

@@ -144,6 +144,12 @@ if (!gotLock) {
       }
     })
 
+    store.events.on('memory', (list) => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('memory:changed', list)
+      }
+    })
+
     app.on('window-all-closed', () => {
       /* Chelp AI keeps running in the tray */
     })

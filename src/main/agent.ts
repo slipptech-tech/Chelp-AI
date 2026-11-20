@@ -24,6 +24,7 @@ import { isProviderReady, visionProviderFor } from '@shared/providers'
 import { matchAgentApp } from '@shared/agent'
 import { managedOllamaInstalled, startOllama } from './ollama'
 import { getStore } from './store'
+import { cleanMemoryText, memoryPromptBlock, taskMemoryText } from './memory'
 import { captureForAgent } from './capture'
 import { broadcast, getFloatWindow, getMainWindow } from './windows'
 
@@ -387,32 +388,57 @@ async function findStartMenuApp(name: string): Promise<{ name: string; id: strin
   return { name: candidates[0].name, id: candidates[0].id }
 }
 
+interface AppTargets {
+  exe: string | null
+  shortcut: string | null
+  startApp: { name: string; id: string } | null
+}
+
+const APP_LOOKUP_TTL = 10 * 60 * 1000
+const appLookupCache = new Map<string, AppTargets & { at: number }>()
+
+async function resolveAppTargets(name: string): Promise<AppTargets> {
+  const key = name.trim().toLowerCase()
+  const cached = appLookupCache.get(key)
+  if (cached && Date.now() - cached.at < APP_LOOKUP_TTL) {
+    return { exe: cached.exe, shortcut: cached.shortcut, startApp: cached.startApp }
+  }
+  const exe = await findInstalledExecutable(name)
+  const shortcut = exe ? null : findStartMenuShortcut(name)
+  const startApp = exe || shortcut ? null : await findStartMenuApp(name)
+  const targets: AppTargets = { exe, shortcut, startApp }
+  appLookupCache.set(key, { ...targets, at: Date.now() })
+  if (appLookupCache.size > 120) {
+    const oldest = appLookupCache.keys().next().value as string | undefined
+    if (oldest) appLookupCache.delete(oldest)
+  }
+  return targets
+}
+
 async function launchApp(raw: string): Promise<void> {
   const clean = sanitizeAppName(raw)
   if (!clean) throw new Error('blocked_app')
   const name = resolveAlias(clean)
-  const exe = await findInstalledExecutable(name)
-  if (exe) {
-    if (/\.exe$/i.test(exe)) {
-      await launchDetached(exe)
+  const targets = await resolveAppTargets(name)
+  if (targets.exe) {
+    if (/\.exe$/i.test(targets.exe)) {
+      await launchDetached(targets.exe)
     } else {
-      const error = await shell.openPath(exe)
+      const error = await shell.openPath(targets.exe)
       if (error) throw new Error('app_not_found')
     }
     return
   }
-  const shortcut = findStartMenuShortcut(name)
-  if (shortcut) {
-    const error = await shell.openPath(shortcut)
+  if (targets.shortcut) {
+    const error = await shell.openPath(targets.shortcut)
     if (!error) return
   }
-  const startApp = await findStartMenuApp(name)
-  if (startApp) {
-    if (/^[a-z]:\\/i.test(startApp.id) || /\.exe$/i.test(startApp.id)) {
-      await launchDetached(startApp.id)
+  if (targets.startApp) {
+    if (/^[a-z]:\\/i.test(targets.startApp.id) || /\.exe$/i.test(targets.startApp.id)) {
+      await launchDetached(targets.startApp.id)
     } else {
       try {
-        await shell.openExternal(`shell:AppsFolder\\${startApp.id}`)
+        await shell.openExternal(`shell:AppsFolder\\${targets.startApp.id}`)
       } catch {
         throw new Error('app_not_found')
       }
@@ -425,9 +451,18 @@ async function launchApp(raw: string): Promise<void> {
 async function isAppAvailable(raw: string): Promise<boolean> {
   const name = resolveAlias(raw)
   if (matchAgentApp(name)) return true
-  if (await findInstalledExecutable(name)) return true
-  if (findStartMenuShortcut(name)) return true
-  return Boolean(await findStartMenuApp(name))
+  const targets = await resolveAppTargets(name)
+  return Boolean(targets.exe || targets.shortcut || targets.startApp)
+}
+
+async function missingAppTargets(actions: AgentAction[]): Promise<string[]> {
+  const missing: string[] = []
+  for (const action of actions) {
+    if (action.kind !== 'open_app' || !action.app) continue
+    if (matchAgentApp(action.app)) continue
+    if (!(await isAppAvailable(action.app))) missing.push(action.app)
+  }
+  return [...new Set(missing)]
 }
 
 function extractLaunchName(goal: string): string | null {
@@ -465,7 +500,7 @@ The user asked Chelp to help with a task on their computer. You get a screenshot
 Work like a careful technician: first read what is actually on screen (error text, dialogs, which app is focused), decide the shortest reliable way to solve the task, then return the concrete steps.
 
 Return ONLY valid JSON, no markdown, no commentary, with this shape:
-{"goal":"short restatement","risk":"low"|"medium","steps":[{"kind":"move|click|double_click|right_click|type|press|scroll|wait|open_url|open_app|edit_file|finish","x":0.0,"y":0.0,"text":"","keys":"","amount":0,"url":"","app":"","path":"","find":"","replace":"","note":"short action description"}]}
+{"goal":"short restatement","risk":"low"|"medium","memory":"optional durable fact about this PC worth remembering later, max 200 chars","steps":[{"kind":"move|click|double_click|right_click|type|press|scroll|wait|open_url|open_app|edit_file|finish","x":0.0,"y":0.0,"text":"","keys":"","amount":0,"url":"","app":"","path":"","find":"","replace":"","note":"short action description"}]}
 
 Rules:
 - Screenshot coordinates are normalized: x and y from 0.0 to 1.0, origin at the top-left of the image.
@@ -474,8 +509,11 @@ Rules:
 - If the needed window or app is already open on screen, use it instead of launching another copy.
 - After an action that changes the screen (opening a window or menu, pressing keys), add a wait step of 600-1500 ms before interacting with the new state.
 - Keep one action per step and write "note" in the language of the user request, describing the action for the user without technical coordinates.
+- Understand the request as a whole. If the user wants several things, cover each in order and do not replace the real task with a similar-looking one.
+- When the request is to open an app and then do something in it (write a note, search, paste text), plan open_app first, then a wait step, then the exact type and press steps. Keep typed text exactly as the user wrote it.
 - To launch a program use one open_app step with "app" set to the program name as it appears in the Start menu or its exe name, for example "Telegram", "Chrome", "Discord", "regedit", "devmgmt.msc". Chelp launches it directly, so never open PowerShell, Command Prompt or Terminal to start another program and never simulate the Start menu.
 - Built-in targets Chelp knows: {{APPS}}. Only open a shell when the user explicitly asks for it or needs an interactive console.
+- The user's earlier context may include what Chelp already learned about this PC. Use it to choose the right app, the right route and the right settings page.
 - The Win key is not available, so never plan press sequences that need it.
 - open_url accepts full http(s) links or official Windows Settings pages, for example ms-settings:windowsupdate, ms-settings:display, ms-settings:network, ms-settings:privacy, ms-settings:appsfeatures, ms-settings:sound, ms-settings:bluetooth, ms-settings:defaultapps.
 - For repair tasks, name the real cause in goal and notes and use built-in Windows tools; do not install unknown software.
@@ -483,7 +521,8 @@ Rules:
 - Never type passwords, API keys, payment data or personal secrets.
 - Only use edit_file when a file was provided below and a minimal find/replace is enough. Never invent file contents.
 - Do not click Chelp AI windows or anything about Chelp AI itself.
-- If the screen does not allow a step, skip it and explain why in note instead of guessing coordinates.`
+- If the screen does not allow a step, skip it and explain why in note instead of guessing coordinates.
+- Use "memory" only for stable, reusable facts (installed apps, recurring errors, preferences). Never put names, passwords or secrets there.`
 
 const KEY_CODES: Record<string, number> = {
   enter: 0x0d,
@@ -797,8 +836,9 @@ function sanitizeSteps(raw: unknown): AgentAction[] {
     }
     if (kind === 'open_app') {
       const known = typeof source.app === 'string' ? matchAgentApp(source.app) : null
-      const app = known ?? sanitizeAppName(source.app)
-      if (!app) continue
+      const rawName = sanitizeAppName(source.app)
+      const app = known ?? (rawName ? resolveAlias(rawName) : null)
+      if (!app || /chelp/i.test(app)) continue
       if (known && !appEntry(known)) continue
       actions.push({ kind, app, note })
       continue
@@ -984,22 +1024,38 @@ export async function buildAgentPlan(
     }
   }
   const language = lang === 'ru' ? 'Russian' : 'English'
-  const prompt = `User request:\n${pending.goal}\n\nChelp's written answer (for context):\n${advice || '(none)'}${fileContext}\n\nWrite all step notes in ${language}. Return only the JSON plan.`
+  const memory = store.settings.aiMemory ? memoryPromptBlock(store.listMemory(), lang) : ''
+  const prompt = `User request:\n${pending.goal}\n\nChelp's written answer (for context):\n${advice || '(none)'}${fileContext}${memory ? `\n\n${memory}` : ''}\n\nWrite all step notes in ${language}. Return only the JSON plan.`
   let lastError = 'plan_failed'
+  let missingApps: string[] = []
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
+      const missingHint = missingApps.length
+        ? `\n\nThe program(s) ${missingApps.join(', ')} were not found on this computer. Use the exact Start-menu name of an installed app, reuse an app that is already open, or open_url the official website. Never launch a shell and never invent an exe name.`
+        : ''
       const input =
         attempt === 0
           ? prompt
-          : `${prompt}\n\nYour previous reply was rejected. Reply with a single valid JSON object only, using the allowed actions and coordinates. Never open PowerShell, Command Prompt or Terminal and never type shell commands to start a program: Chelp launches programs directly with one open_app step and the program name, for example {"kind":"open_app","app":"Telegram"}.`
+          : `${prompt}${missingHint}\n\nYour previous reply was rejected. Reply with a single valid JSON object only, using the allowed actions and coordinates. Never open PowerShell, Command Prompt or Terminal and never type shell commands to start a program: Chelp launches programs directly with one open_app step and the program name, for example {"kind":"open_app","app":"Telegram"}.`
       const raw = await requestPlanText(provider, pending.dataUrl, input)
       const parsed = parseJsonPlan(raw)
       const actions = stripUnrequestedShells(sanitizeSteps(parsed), pending.goal)
       if (!actions.some((action) => action.kind !== 'finish' && action.kind !== 'wait')) {
         throw new Error('empty_plan')
       }
+      const missing = await missingAppTargets(actions)
+      if (missing.length > 0) {
+        throw new Error(`missing_apps|${missing.join(', ')}`)
+      }
       const riskRaw = (parsed as { risk?: unknown }).risk
       const risk = riskRaw === 'medium' ? 'medium' : riskFor(actions)
+      if (store.settings.aiMemory) {
+        const memoryRaw = (parsed as { memory?: unknown }).memory
+        if (typeof memoryRaw === 'string') {
+          const memoryText = cleanMemoryText(memoryRaw)
+          if (memoryText) store.remember({ kind: 'note', text: memoryText })
+        }
+      }
       const plan: AgentPlan = {
         id,
         goal: pending.goal,
@@ -1012,8 +1068,13 @@ export async function buildAgentPlan(
       return plan
     } catch (error) {
       const message = error instanceof Error ? error.message : 'plan_failed'
-      lastError = /json|unexpected token/i.test(message) ? 'bad_plan' : message
-      if (lastError !== 'bad_plan' && lastError !== 'empty_plan') break
+      if (message.startsWith('missing_apps|')) {
+        missingApps = message.slice('missing_apps|'.length).split(', ')
+        lastError = 'app_not_found'
+      } else {
+        lastError = /json|unexpected token/i.test(message) ? 'bad_plan' : message
+      }
+      if (lastError !== 'bad_plan' && lastError !== 'empty_plan' && lastError !== 'app_not_found') break
     }
   }
   return { error: lastError }
@@ -1289,6 +1350,11 @@ export async function runAgent(id: string, lang: Lang): Promise<{ ok: boolean; e
   })
 
   await appendResultMessage(pending, plan, lang, status, failure, token)
+
+  if (status !== 'cancelled' && getStore().settings.aiMemory) {
+    const remembered = taskMemoryText(plan.goal, totalExecuted, status === 'error' ? 'error' : 'done', lang)
+    if (remembered) getStore().remember({ kind: 'task', text: remembered })
+  }
 
   prepared.delete(id)
   return status === 'error' ? { ok: false, error: failure } : { ok: true }

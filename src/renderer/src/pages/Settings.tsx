@@ -1,6 +1,7 @@
 import { useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import {
   ArrowDownToLine,
+  Brain,
   CheckCircle2,
   CircleAlert,
   FolderOpen,
@@ -15,7 +16,8 @@ import {
   Shield,
   SlidersHorizontal,
   Sparkles,
-  Trash2
+  Trash2,
+  X
 } from 'lucide-react'
 import type { Accent, Hotkeys } from '@shared/types'
 import { useApp } from '../store'
@@ -141,8 +143,12 @@ export function SettingsPage() {
   const checkUpdates = useApp((state) => state.checkUpdates)
   const downloadUpdate = useApp((state) => state.downloadUpdate)
   const installUpdate = useApp((state) => state.installUpdate)
+  const memory = useApp((state) => state.memory)
+  const removeMemory = useApp((state) => state.removeMemory)
+  const clearMemory = useApp((state) => state.clearMemory)
   const [clearOpen, setClearOpen] = useState(false)
   const [photosOpen, setPhotosOpen] = useState(false)
+  const [memoryOpen, setMemoryOpen] = useState(false)
 
   const setHotkey = (key: keyof Hotkeys, accelerator: string): void => {
     const other = key === 'float' ? settings.hotkeys.capture : settings.hotkeys.float
@@ -162,6 +168,12 @@ export function SettingsPage() {
   const confirmClearPhotos = async (): Promise<void> => {
     await clearPhotos()
     setPhotosOpen(false)
+  }
+
+  const confirmClearMemory = async (): Promise<void> => {
+    await clearMemory()
+    setMemoryOpen(false)
+    toast(t('settings.memoryCleared'), 'success')
   }
 
   const photosHint = storage
@@ -432,6 +444,70 @@ export function SettingsPage() {
         <section className="settings-card">
           <div className="settings-card-head">
             <span className="settings-icon">
+              <Brain size={16} />
+            </span>
+            <h3>{t('settings.memory')}</h3>
+          </div>
+          <SettingRow title={t('settings.memoryEnable')} hint={t('settings.memoryEnableHint')}>
+            <Switch
+              checked={settings.aiMemory}
+              onChange={(aiMemory) => void updateSettings({ aiMemory })}
+            />
+          </SettingRow>
+          {settings.aiMemory ? (
+            <div className="setting-row is-stacked">
+              <div className="setting-text">
+                <strong>{t('settings.memoryCount', { n: memory.length })}</strong>
+                <span>{t('settings.memoryCountHint')}</span>
+              </div>
+              {memory.length > 0 ? (
+                <ul className="memory-list">
+                  {memory.slice(0, 6).map((entry) => (
+                    <li key={entry.id} className="memory-item">
+                      <span className={`memory-kind is-${entry.kind}`}>
+                        {t(`settings.memoryKind.${entry.kind}`)}
+                      </span>
+                      <span className="memory-text" title={entry.text}>
+                        {entry.text}
+                      </span>
+                      <button
+                        type="button"
+                        className="memory-remove"
+                        title={t('common.delete')}
+                        aria-label={t('common.delete')}
+                        onClick={() => void removeMemory(entry.id)}
+                      >
+                        <X size={12} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="memory-empty">{t('settings.memoryEmpty')}</p>
+              )}
+              {memory.length > 0 ? (
+                <div className="settings-inline-actions">
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    icon={<Trash2 size={12} />}
+                    onClick={() => setMemoryOpen(true)}
+                  >
+                    {t('settings.memoryClear')}
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          <div className="privacy-note">
+            <Shield size={13} />
+            <span>{t('settings.memoryNote')}</span>
+          </div>
+        </section>
+
+        <section className="settings-card">
+          <div className="settings-card-head">
+            <span className="settings-icon">
               <SlidersHorizontal size={16} />
             </span>
             <h3>{t('settings.behavior')}</h3>
@@ -594,6 +670,18 @@ export function SettingsPage() {
         </section>
         </div>
       </div>
+
+      {memoryOpen ? (
+        <ConfirmDialog
+          title={t('settings.memoryClearTitle')}
+          text={t('settings.memoryClearText')}
+          confirmLabel={t('settings.memoryClear')}
+          cancelLabel={t('common.cancel')}
+          danger
+          onConfirm={() => void confirmClearMemory()}
+          onClose={() => setMemoryOpen(false)}
+        />
+      ) : null}
 
       {photosOpen ? (
         <ConfirmDialog

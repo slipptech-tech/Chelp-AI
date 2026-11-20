@@ -264,14 +264,6 @@ export function DashboardPage() {
               </span>
             </button>
           </div>
-          <div className="quick-hint">
-            <Scan size={12} />
-            <span>
-              {t('dashboard.hero.hintPrefix')}
-              <Kbd>{formatKey(settings.hotkeys.capture)}</Kbd>
-              {t('dashboard.hero.hintSuffix')}
-            </span>
-          </div>
         </section>
       </div>
     </div>

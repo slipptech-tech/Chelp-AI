@@ -9,6 +9,7 @@ import type {
   ChatMode,
   Conversation,
   ConversationMeta,
+  MemoryEntry,
   SavedAnswer,
   Settings,
   StorageInfo,
@@ -115,6 +116,7 @@ const fallbackSettings: Settings = {
   photoRetentionDays: 14,
   agentPermission: 'ask',
   agentAllowedChats: [],
+  aiMemory: true,
   hotkeysEnabled: true,
   hotkeys: { float: 'Ctrl+Shift+Space', capture: 'Ctrl+Shift+X' },
   providers: DEFAULT_PROVIDERS,
@@ -150,6 +152,7 @@ interface AppState {
   conversation: Conversation | null
   conversations: ConversationMeta[]
   saved: SavedAnswer[]
+  memory: MemoryEntry[]
   streaming: Record<string, StreamingState | undefined>
   chatErrors: Record<string, ChatError | undefined>
   toasts: Toast[]
@@ -202,6 +205,8 @@ interface AppState {
   }) => Promise<boolean>
   saveAnswer: (message: ChatMessage, conversationId: string) => Promise<void>
   removeSaved: (id: string) => Promise<void>
+  removeMemory: (id: string) => Promise<void>
+  clearMemory: () => Promise<void>
   toast: (message: string, tone?: Toast['tone']) => void
   dismissToast: (id: string) => void
   clearChatError: (conversationId: string) => void
@@ -216,6 +221,7 @@ export const useApp = create<AppState>((set, get) => ({
   conversation: null,
   conversations: [],
   saved: [],
+  memory: [],
   streaming: {},
   chatErrors: {},
   toasts: [],
@@ -225,13 +231,14 @@ export const useApp = create<AppState>((set, get) => ({
   agent: INITIAL_AGENT,
 
   init: async () => {
-    const [settings, version, conversations, saved] = await Promise.all([
+    const [settings, version, conversations, saved, memory] = await Promise.all([
       window.chelp.settings.get(),
       window.chelp.app.getVersion(),
       window.chelp.conversations.list(),
-      window.chelp.saved.list()
+      window.chelp.saved.list(),
+      window.chelp.memory.list()
     ])
-    set({ settings, version, conversations, saved, ready: true })
+    set({ settings, version, conversations, saved, memory, ready: true })
     void get().refreshStorage()
     if (settings.checkUpdates) {
       setTimeout(() => void get().checkUpdates(), 1800)
@@ -569,6 +576,16 @@ export const useApp = create<AppState>((set, get) => ({
     await window.chelp.saved.remove(id)
   },
 
+  removeMemory: async (id) => {
+    await window.chelp.memory.remove(id)
+    set((state) => ({ memory: state.memory.filter((entry) => entry.id !== id) }))
+  },
+
+  clearMemory: async () => {
+    await window.chelp.memory.clear()
+    set({ memory: [] })
+  },
+
   toast: (message, tone = 'info') => {
     const id = uid()
     set((state) => ({ toasts: [...state.toasts, { id, message, tone }] }))
@@ -591,6 +608,7 @@ export function wireEvents(): () => void {
     api.settings.onChanged((settings) => useApp.setState({ settings })),
     api.conversations.onChanged((conversations) => useApp.setState({ conversations })),
     api.saved.onChanged((saved) => useApp.setState({ saved })),
+    api.memory.onChanged((memory) => useApp.setState({ memory })),
     api.chat.onUserMessage(({ conversationId, conversation }) => {
       useApp.setState((state) => ({
         conversation: state.conversationId === conversationId ? conversation : state.conversation,

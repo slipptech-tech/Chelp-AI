@@ -13,6 +13,7 @@ import type {
   LocalModelsResult,
   LocalRuntimeResult,
   LocalRuntimeStatus,
+  MemoryEntry,
   OllamaProgress,
   Provider,
   ProviderAuthResult,
@@ -108,6 +109,12 @@ const api = {
       ipcRenderer.invoke('saved:add', input),
     remove: (id: string): Promise<void> => ipcRenderer.invoke('saved:remove', id),
     onChanged: (cb: (list: SavedAnswer[]) => void) => subscribe('saved:changed', cb)
+  },
+  memory: {
+    list: (): Promise<MemoryEntry[]> => ipcRenderer.invoke('memory:list'),
+    remove: (id: string): Promise<void> => ipcRenderer.invoke('memory:remove', id),
+    clear: (): Promise<void> => ipcRenderer.invoke('memory:clear'),
+    onChanged: (cb: (list: MemoryEntry[]) => void) => subscribe('memory:changed', cb)
   },
   chat: {
     send: (payload: SendChatPayload) => ipcRenderer.invoke('chat:send', payload),

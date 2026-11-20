@@ -17,6 +17,7 @@ import { FLOAT_PROMPT, SCREEN_PROMPT, SYSTEM_PROMPT } from '@shared/prompts'
 import { isProviderReady } from '@shared/providers'
 import { detectAgentIntent } from '@shared/agent'
 import { getStore } from './store'
+import { memoryPromptBlock, screenMemoryFrom } from './memory'
 import { managedOllamaInstalled, startOllama } from './ollama'
 import { GUARD_POLICY, guardRefusal, inspectRequest } from './guard'
 
@@ -240,8 +241,15 @@ function buildMessages(
   const offerNote = offer
     ? `\n\nAn action card is attached to your reply: Chelp AI can perform the necessary steps on the user's computer right after answering. Never say that you are unable to open apps, launch programs, change settings or act on this PC. Do not give manual instructions as the only option. In 2-4 short sentences name the cause or the exact route, include the command or setting name when it helps, and say that Chelp will handle it via the card below.`
     : ''
+  const store = getStore()
+  const memory = store.settings.aiMemory
+    ? memoryPromptBlock(store.listMemory(), store.settings.language)
+    : ''
   const messages: unknown[] = [
-    { role: 'system', content: `${system}\n\n${GUARD_POLICY}${offerNote}` }
+    {
+      role: 'system',
+      content: `${system}\n\n${GUARD_POLICY}${memory ? `\n\n${memory}` : ''}${offerNote}`
+    }
   ]
   const history = conversation.messages.filter((m) => !m.error || m.content.trim()).slice(-24)
 
@@ -390,6 +398,10 @@ async function run(
     }
     store.addMessage(conversationId, message)
     const updated = store.getConversation(conversationId)
+    if (updated && !error && mode === 'screen' && store.settings.aiMemory) {
+      const remembered = screenMemoryFrom(updated, message)
+      if (remembered) store.remember({ kind: 'screen', text: remembered })
+    }
     if (updated) {
       broadcast('chat:done', { conversationId, messageId, conversation: updated })
       if (!error) notifyDone(updated, mode)

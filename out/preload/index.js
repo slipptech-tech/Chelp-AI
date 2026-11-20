@@ -75,6 +75,12 @@ const api = {
     remove: (id) => electron.ipcRenderer.invoke("saved:remove", id),
     onChanged: (cb) => subscribe("saved:changed", cb)
   },
+  memory: {
+    list: () => electron.ipcRenderer.invoke("memory:list"),
+    remove: (id) => electron.ipcRenderer.invoke("memory:remove", id),
+    clear: () => electron.ipcRenderer.invoke("memory:clear"),
+    onChanged: (cb) => subscribe("memory:changed", cb)
+  },
   chat: {
     send: (payload) => electron.ipcRenderer.invoke("chat:send", payload),
     abort: (conversationId) => electron.ipcRenderer.invoke("chat:abort", conversationId),

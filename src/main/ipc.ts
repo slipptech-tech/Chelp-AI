@@ -146,6 +146,14 @@ export function registerIpc(): void {
     getStore().removeSaved(id)
   })
 
+  ipcMain.handle('memory:list', () => getStore().listMemory())
+  ipcMain.handle('memory:remove', (_event, id: string) => {
+    getStore().removeMemory(id)
+  })
+  ipcMain.handle('memory:clear', () => {
+    getStore().clearMemory()
+  })
+
   ipcMain.handle('chat:send', (_event, payload: SendChatPayload) => sendChat(payload))
   ipcMain.handle('chat:abort', (_event, conversationId: string) => {
     abortRequest(conversationId)

@@ -19,7 +19,12 @@ const ACTION_VERB =
   /(открой|откройте|открыть|запусти|запустите|запустить|включи|включите|включить|выключи|выключите|выключить|переключи|переключить|настрой|настроить|измени|измените|изменить|поменяй|поменять|перенеси|перенести|перемести|переместить|скопируй|скопировать|переименуй|переименовать|установи|установить|скачай|скачать|создай|создать|подключи|подключить|\bopen\b|\blaunch\b|\bstart\b|\brun\b|\binstall\b|\bdownload\b|\bmove\b|\bcopy\b|\brename\b|\bchange\b|\bcreate\b|\bconfigure\b|\benable\b|\bdisable\b|\bset up\b)/i
 
 const NOT_ACTIONABLE =
-  /^(что такое|что значит|объясни|объясните|расскажи|what is|what does|explain|tell me about)\b/i
+  /^(что такое|что значит|объясни(?:те)?|расскажи(?:те)?|what is|what does|explain|tell me about)(?=\s|$|[,.!?:])/i
+
+const QUESTION_START =
+  /^(как|где|почему|зачем|что|сколько|какой|какая|какие|можно ли|стоит ли|how|where|why|what|which|who|when)(?=\s|$|[,.!?:])/i
+
+const REQUEST_PHRASE = /\b(can|could|would) you\b|^\s*(please|пожалуйста|плиз)(?=\s|$|[,.!?])/i
 
 const URL_PATTERN = /\bhttps?:\/\/[^\s<>"']+/i
 const DOMAIN_PATTERN = /\b((?:[\w-]+\.)+(?:com|ru|org|net|io|app|dev|site|me|tech))(?:\/[^\s<>"']*)?/i
@@ -65,6 +70,13 @@ export function detectAgentIntent(text: string): AgentOffer | null {
     !FIX_INTENT.test(goal) &&
     !BROWSER_INTENT.test(goal) &&
     !ACTION_VERB.test(goal)
+  ) {
+    return null
+  }
+  if (
+    QUESTION_START.test(goal) &&
+    !REQUEST_PHRASE.test(goal) &&
+    !FIX_INTENT.test(goal)
   ) {
     return null
   }

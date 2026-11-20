@@ -378,6 +378,24 @@ const en: Dict = {
   'settings.agentChats': 'Auto-run Chats',
   'settings.agentChatsHint': 'Chats where actions run without asking: {n}.',
   'settings.agentChatsReset': 'Reset',
+  'settings.memory': 'AI Memory',
+  'settings.memoryEnable': 'Remember Context',
+  'settings.memoryEnableHint':
+    'Chelp keeps local notes about what it saw — screen analyses, completed actions and durable facts — and uses them to answer faster and more precisely.',
+  'settings.memoryCount': 'Remembered items: {n}',
+  'settings.memoryCountHint': 'Stored on this PC only and never uploaded. Remove any item you do not want kept.',
+  'settings.memoryKind.screen': 'Screen',
+  'settings.memoryKind.task': 'Action',
+  'settings.memoryKind.note': 'Fact',
+  'settings.memoryEmpty':
+    'Nothing remembered yet. Analyze a screen or run an action and Chelp starts building context about this PC.',
+  'settings.memoryClear': 'Clear memory',
+  'settings.memoryClearTitle': 'Clear AI memory?',
+  'settings.memoryClearText':
+    'All remembered screen analyses, completed actions and facts are deleted. Conversations and saved answers stay.',
+  'settings.memoryCleared': 'AI memory cleared.',
+  'settings.memoryNote':
+    'Memory is a local file next to Chelp AI. Passwords, API keys and personal secrets are never written to it.',
   'settings.privacy': 'Privacy',
   'settings.saveHistory': 'Save History',
   'settings.saveHistoryHint': 'When off, conversations stay in memory and disappear on exit.',
@@ -967,6 +985,24 @@ const ru: Dict = {
   'settings.agentChats': 'Чаты с автовыполнением',
   'settings.agentChatsHint': 'Чатов без запроса: {n}.',
   'settings.agentChatsReset': 'Сбросить',
+  'settings.memory': 'Память ИИ',
+  'settings.memoryEnable': 'Запоминать контекст',
+  'settings.memoryEnableHint':
+    'Chelp ведёт локальные заметки о том, что видел: разборы экрана, выполненные действия и устойчивые факты. Они помогают отвечать быстрее и точнее.',
+  'settings.memoryCount': 'Записей в памяти: {n}',
+  'settings.memoryCountHint': 'Хранится только на этом ПК и никуда не отправляется. Любую запись можно удалить.',
+  'settings.memoryKind.screen': 'Экран',
+  'settings.memoryKind.task': 'Действие',
+  'settings.memoryKind.note': 'Факт',
+  'settings.memoryEmpty':
+    'Пока пусто. Разберите экран или выполните действие — Chelp начнёт собирать контекст об этом компьютере.',
+  'settings.memoryClear': 'Очистить память',
+  'settings.memoryClearTitle': 'Очистить память ИИ?',
+  'settings.memoryClearText':
+    'Все запомненные разборы экрана, выполненные действия и факты будут удалены. Диалоги и сохранённые ответы останутся.',
+  'settings.memoryCleared': 'Память ИИ очищена.',
+  'settings.memoryNote':
+    'Память хранится локальным файлом рядом с Chelp AI. Пароли, API-ключи и личные секреты в неё никогда не попадают.',
   'settings.privacy': 'Конфиденциальность',
   'settings.saveHistory': 'Сохранять историю',
   'settings.saveHistoryHint': 'Если выключено, диалоги живут только в памяти и исчезнут после выхода.',
