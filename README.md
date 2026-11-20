@@ -36,7 +36,7 @@ Screenshots are captured only on your command, previewed before sending, and upl
 
 ### Windows installer
 
-1. Download `Chelp AI Setup 1.0.0.exe`.
+1. Download `Chelp AI Setup.exe`.
 2. Run the installer. It installs per user, so no administrator rights are required.
 3. Launch Chelp AI from the Start menu or the desktop shortcut.
 
